@@ -2,8 +2,13 @@ project:
   output-dir: _docs
 
 website:
-  title: "pullup"
-  site-url: "https://Karthik777.github.io/pullup"
-  description: "pulumi on `roids"
+  title: "kunda"
+  site-url: "https://vedicreader.github.io/kunda"
+  description: "the vessel that holds live kernels: which interpreter each burns in, and how many stay alight"
   repo-branch: main
-  repo-url: "https://github.com/Karthik777/pullup"
+  repo-url: "https://github.com/vedicreader/kunda"
+
+format-links:
+  - html
+  - format: commonmark
+    text: Markdown
