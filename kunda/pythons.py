@@ -12,8 +12,7 @@ __all__ = ['APP', 'VENV_DIRS', 'VENV_BINS', 'VENV_PYTHONS', 'BUNDLE_ONLY', 'use_
            'find_pythons']
 
 # %% ../nbs/00_pythons.ipynb #eeafcd60
-#: The host application: what it calls itself, and the prefix on every environment variable kunda
-#: reads. `use_app` replaces both.
+#: The name kunda wears, and the prefix on every environment variable it reads. `use_app` sets both.
 APP = {'name': 'kunda', 'prefix': 'KUNDA_'}
 
 def use_app(name='kunda', env_prefix='KUNDA_'):
