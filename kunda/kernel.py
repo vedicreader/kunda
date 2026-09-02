@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 # %% auto #0
-__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'GATEWAY_DEPS', 'IDLE_SECONDS', 'SWEEP_SECONDS', 'ipymini_available', 'Kernel',
-           'check_gateway_deps', 'GatewayService', 'GatewayKernel']
+__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'GATEWAY_DEPS', 'ipymini_available', 'Kernel', 'check_gateway_deps', 'GatewayService',
+           'GatewayKernel']
 
 # %% ../nbs/04_kernel.ipynb #a4bf4b54
 import asyncio, importlib.util, json, os, queue, shutil, sys, tempfile, time, uuid, warnings
@@ -447,13 +447,13 @@ def check_gateway_deps():
     for name, spec in GATEWAY_DEPS:
         try: importlib.import_module(name)
         except ImportError as e: raise RuntimeError(
-            f'gateway transport needs `pip install "leela[gateway]"`; {name} is not installed') from e
+            f'gateway transport needs `pip install "kunda[gateway]"`; {name} is not installed') from e
         if not spec: continue
         try: version = importlib.metadata.version(name)
         except Exception: continue   # unknown version, such as a vendored copy, is not a reason to refuse
         if not SpecifierSet(spec, prereleases=True).contains(version): raise RuntimeError(
             f'gateway transport needs {name}{spec}, and {version} is installed; '
-            'reinstall with `pip install "leela[gateway]"`')
+            'reinstall with `pip install "kunda[gateway]"`')
 
 # %% ../nbs/04_kernel.ipynb #a15c29b5
 class GatewayService:
@@ -559,11 +559,3 @@ class GatewayKernel(_Inspector):
     async def shutdown(self):
         if self.kc: await _give_up_after(self._release())
         self.kc, self.base, self._alive = None, None, False
-
-# %% ../nbs/04_kernel.ipynb #8288368a
-#: How long a kernel may sit unused before the sweep closes it. `LEELA_KERNEL_IDLE=0` turns it off.
-IDLE_SECONDS = 30*60
-
-# %% ../nbs/04_kernel.ipynb #edb043fc
-#: How often the sweep looks.
-SWEEP_SECONDS = 60

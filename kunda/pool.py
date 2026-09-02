@@ -16,7 +16,7 @@ from pathlib import Path
 from fastcore.all import L, first, ifnone
 
 # %% ../nbs/05_pool.ipynb #b544ab83
-from .kernel import GatewayKernel, GatewayService, Kernel, _give_up_after
+from .kernel import GatewayKernel, GatewayService, Kernel
 
 # %% ../nbs/05_pool.ipynb #a76c379c
 from .kernel import KERNELS
