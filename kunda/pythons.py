@@ -7,8 +7,31 @@ from shutil import which
 from fastcore.all import L, Path, first
 
 # %% auto #0
-__all__ = ['VENV_DIRS', 'VENV_BINS', 'VENV_PYTHONS', 'BUNDLE_ONLY', 'strip_bundle', 'clean_env', 'venv_env', 'nearest_marked',
-           'project_python', 'nearest_python', 'python_for', 'find_pythons']
+__all__ = ['APP', 'VENV_DIRS', 'VENV_BINS', 'VENV_PYTHONS', 'BUNDLE_ONLY', 'use_app', 'app_name', 'env_name', 'app_env',
+           'strip_bundle', 'clean_env', 'venv_env', 'nearest_marked', 'project_python', 'nearest_python', 'python_for',
+           'find_pythons']
+
+# %% ../nbs/00_pythons.ipynb #eeafcd60
+#: The host application: what it calls itself, and the prefix on every environment variable kunda
+#: reads. `use_app` replaces both.
+APP = {'name': 'kunda', 'prefix': 'KUNDA_'}
+
+def use_app(name='kunda', env_prefix='KUNDA_'):
+    "Name the host application, so what kunda reads and what it says are spelled the host's way."
+    APP['name'], APP['prefix'] = name, env_prefix
+    return APP
+
+def app_name():
+    "What the host calls itself: `kunda`, until `use_app` says otherwise."
+    return APP['name']
+
+def env_name(name):
+    "`name` under the host's prefix, so `MAX_KERNELS` is `KUNDA_MAX_KERNELS` by default."
+    return APP['prefix'] + name
+
+def app_env(name, default=None):
+    "What the environment holds for `env_name(name)`, asked now rather than at import."
+    return os.environ.get(env_name(name), default)
 
 # %% ../nbs/00_pythons.ipynb #3f4aff63
 #: Directory names a project keeps its virtual environment in, best first.

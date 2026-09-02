@@ -17,13 +17,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # %% ../nbs/03_spec.ipynb #ee18f6ff
-from fastcore.all import L, first
+from fastcore.all import L, first, ifnone
 
 # %% ../nbs/03_spec.ipynb #36f7ec39
 from jupyter_client.kernelspec import KernelSpec
 
 # %% ../nbs/03_spec.ipynb #d4779c27
 from .support import HOST_PY, clean_env, support_paths
+from .pythons import app_name
 
 # %% ../nbs/03_spec.ipynb #dfe72612
 def run_file_src(path, src=None, argv=(), cwd=None):
@@ -81,8 +82,10 @@ finally: del _kd_bootstrap
 
 # %% ../nbs/03_spec.ipynb #5a57fb04
 def bootstrap_src(name=None, port=8000, agent='restricted', token=True, kernel='ipykernel',
-                  sessions='_kunda_sessions', agent_sessions='_kunda_agent_sessions'):
+                  sessions=None, agent_sessions=None):
     "The bootstrap cell source for a kernel that should host an inspector."
+    sessions, agent_sessions = (ifnone(sessions, f'_{app_name()}_sessions'),
+                                ifnone(agent_sessions, f'_{app_name()}_agent_sessions'))
     support = support_paths()
     # Found, not imported: importing dhrishti for its `__file__` drags IPython, pandas and
     # numpy into the host process, which has no use for them. The kernel does the importing.

@@ -25,6 +25,9 @@ from jupyter_client.manager import AsyncKernelManager
 # %% ../nbs/04_kernel.ipynb #a1a83be0
 from .registry import active, reg_dir
 
+# %% ../nbs/04_kernel.ipynb #e46e8e59
+from .pythons import app_name
+
 # %% ../nbs/04_kernel.ipynb #23481289
 from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
 
@@ -149,6 +152,8 @@ class Kernel(_Inspector):
         port=8000,
         kernel='ipykernel',
         lang='python',
+        known=None,        # the host's `{language: kernelspec}`, handed down by the pool
+        install='',        # what would install a kernel for `lang`, for the error when none is
     ):
         if kernel not in KERNELS: kernel = 'ipykernel'
         if lang != 'python': inspect, kernel = False, 'ipykernel'   # dhrishti reads Python namespaces
@@ -188,7 +193,7 @@ class Kernel(_Inspector):
         return True
     async def start(self, timeout=60):
         "Launch the kernel, wait for it to answer, then bootstrap its inspector."
-        spec_name = kernelspec_for(self.lang) if self.lang != 'python' else None
+        spec_name = kernelspec_for(self.lang, self.known) if self.lang != 'python' else None
         manager_kw = {'kernel_name': spec_name or (self.kernel if self.kernel == 'ipymini' else 'python3')}
         if os.name != 'nt' and self.kernel == 'ipykernel' and self.lang == 'python':
             self._ipc_dir = tempfile.mkdtemp(prefix='lee-k-', dir='/tmp' if os.path.isdir('/tmp') else None)
@@ -197,7 +202,8 @@ class Kernel(_Inspector):
         elif self.kernel == 'ipykernel':
             manager_kw['transport_encryption'] = 'required'
         self.km = AsyncKernelManager(**manager_kw)
-        self.km._kernel_spec = _spec(self.python, ifnone(self.name, 'python3'), self.kernel, self.lang)
+        self.km._kernel_spec = _spec(self.python, ifnone(self.name, 'python3'), self.kernel,
+                                     self.lang, self.known, self.install)
         cwd = work_dir(self.cwd)
         try:
             await self.km.start_kernel(cwd=cwd, env=_kernel_env(self.python))
@@ -447,17 +453,18 @@ def check_gateway_deps():
     for name, spec in GATEWAY_DEPS:
         try: importlib.import_module(name)
         except ImportError as e: raise RuntimeError(
-            f'gateway transport needs `pip install "kunda[gateway]"`; {name} is not installed') from e
+            f'gateway transport needs `pip install "{app_name()}[gateway]"`; '
+            f'{name} is not installed') from e
         if not spec: continue
         try: version = importlib.metadata.version(name)
         except Exception: continue   # unknown version, such as a vendored copy, is not a reason to refuse
         if not SpecifierSet(spec, prereleases=True).contains(version): raise RuntimeError(
             f'gateway transport needs {name}{spec}, and {version} is installed; '
-            'reinstall with `pip install "kunda[gateway]"`')
+            f'reinstall with `pip install "{app_name()}[gateway]"`')
 
 # %% ../nbs/04_kernel.ipynb #a15c29b5
 class GatewayService:
-    "One supervised jupygate for all workspace kernels in this Leela process."
+    "One supervised jupygate for all workspace kernels in this host process."
     def __init__(self, port=8787, token=None):
         import secrets
         self.port, self.token, self.server = int(port), token or secrets.token_urlsafe(24), None
@@ -470,8 +477,8 @@ class GatewayService:
         argv = [sys.executable, '-m', 'ipykernel_launcher', '-f', '{connection_file}']
         try: self.server = serve(create_app(argv=argv, auth_token=self.token), port=self.port, in_thread=True)
         except OSError as e: raise RuntimeError(   # jupygate gives up on the listen with a TimeoutError
-            f'gateway transport could not listen on port {self.port}; another Leela or a leftover '
-            'gateway is holding it') from e
+            f'gateway transport could not listen on port {self.port}; another {app_name()} or a '
+            'leftover gateway is holding it') from e
         return self
     def stop(self):
         if self.server is not None: self.server.should_exit = True

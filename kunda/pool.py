@@ -21,9 +21,11 @@ from .kernel import GatewayKernel, GatewayService, Kernel
 # %% ../nbs/05_pool.ipynb #a76c379c
 from .kernel import KERNELS
 from .spec import KernelStartError, kernelspec_for
+from .pythons import app_env, env_name
 
 # %% ../nbs/05_pool.ipynb #51f1df0c
-#: How long a kernel may sit idle before the sweeper closes it. `$KUNDA_KERNEL_IDLE` overrides.
+#: How long a kernel may sit idle before the sweeper closes it. `$KUNDA_KERNEL_IDLE` overrides,
+#: spelled with the prefix `use_app` was given.
 IDLE_SECONDS = 30*60
 #: How often the sweeper looks. Never longer than `idle`, or a short idle never fires.
 SWEEP_SECONDS = 60
@@ -39,9 +41,9 @@ class KernelLimit(RuntimeError):
 class RuntimeBroker:
     "A ceiling across every pool in this process. Never evicts a namespace somebody is using."
     def __init__(self, max_kernels=None, auto_manage=None):
-        self.max_kernels = int(max_kernels or os.environ.get('KUNDA_MAX_KERNELS', 12))
+        self.max_kernels = int(max_kernels or app_env('MAX_KERNELS', 12))
         self.auto_manage = bool(ifnone(auto_manage,
-            os.environ.get('KUNDA_KERNEL_AUTO', '').lower() in ('1', 'true', 'yes')))
+            app_env('KERNEL_AUTO', '').lower() in ('1', 'true', 'yes')))
         self.pools, self._lock, self._reserved = [], asyncio.Lock(), set()
     def register(self, pool):
         if pool not in self.pools: self.pools.append(pool)
@@ -74,10 +76,10 @@ class RuntimeBroker:
                 row = self.stalest()
                 if row is None: raise KernelLimit(
                     f'kernel limit reached ({self.max_kernels}) and every runtime is busy; stop one '
-                    'or set KUNDA_MAX_KERNELS to a larger value', limit=self.max_kernels)
+                    f'or set {env_name("MAX_KERNELS")} to a larger value', limit=self.max_kernels)
                 if not self.auto_manage: raise KernelLimit(
                     f'kernel limit reached ({self.max_kernels}); close an idle runtime '
-                    'or set KUNDA_MAX_KERNELS to a larger value',
+                    f'or set {env_name("MAX_KERNELS")} to a larger value',
                     candidate=self._candidate(), limit=self.max_kernels)
                 evicted = self._candidate()
                 vpool, vkey, _ = row
@@ -91,13 +93,16 @@ class RuntimeBroker:
 class KernelPool:
     "Live kernels, keyed by an id the host assigns: usually a tab, a notebook or a folder."
     def __init__(self, port=8000, default_kernel='ipykernel', default_python=None, broker=None,
-        transport='direct', gateway=None, idle=None, runner_for=None, known_kernels=None):
+        transport='direct', gateway=None, idle=None, runner_for=None, known_kernels=None,
+        install_hints=None):
         #: `runner_for(lang)` gives a class for a language with no Jupyter kernel; None means there
         #: is none, and `installed_spec` raises naming what would install one.
-        #: `known_kernels` is the host's own `{language: kernelspec}`, which wins where it answers.
+        #: `known_kernels` is the host's own `{language: kernelspec}`, which wins where it answers,
+        #: and `install_hints` its `{language: what would install a kernel for it}`.
         self.runner_for, self.known_kernels = runner_for, known_kernels or {}
+        self.install_hints = install_hints or {}
         self.port, self.kernels, self._starting, self.broker = port, {}, {}, None
-        self.idle = int(ifnone(idle, os.environ.get('KUNDA_KERNEL_IDLE', IDLE_SECONDS)))
+        self.idle = int(ifnone(idle, app_env('KERNEL_IDLE', IDLE_SECONDS)))
         self._sweep = None
         self.transport = transport if transport in ('direct', 'gateway') else 'direct'
         self.gateway = gateway
@@ -136,6 +141,9 @@ class KernelPool:
                 if self.gateway is None: self.gateway = GatewayService().start()
                 args['gateway'] = self.gateway
                 args.pop('lang', None)          # the gateway carries Python, and takes no language
+            if issubclass(cls, Kernel):   # only kunda's own kernel resolves a spec, so only it is told
+                args['known'] = self.known_kernels
+                args['install'] = self.install_hints.get(args.get('lang') or 'python', '')
             # a host's own runner is keyed, because it has no connection file to be found by
             if getattr(cls, 'wants_key', False): args['key'] = key
             k = self.kernels[key] = cls(port=self.port, **args)
