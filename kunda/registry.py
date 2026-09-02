@@ -9,7 +9,7 @@ from fastcore.xtras import Path
 __all__ = ['PROFILES', 'SORTS', 'IMPORT_FAULTS', 'import_failure', 'reg_dir', 'alive', 'active']
 
 # %% ../nbs/02_registry.ipynb #cc793e97
-# Mirrors `dhrishti.core.PROFILES`; 'data' is always top-level. Pinned by `tests/test_inspectors.py`.
+# Mirrors `dhrishti.core.PROFILES`; 'data' is always top-level. Checked below where dhrishti is installed.
 PROFILES = {
     'minimal':  {'type': 'hidden', 'function': 'group', 'module': 'hidden', 'special': 'hidden'},
     'standard': {'type': 'group',  'function': 'group', 'module': 'group',  'special': 'group'},
@@ -37,7 +37,9 @@ def reg_dir():
 
 def alive(pid):
     "Is `pid` running and not a zombie? `os.kill(pid, 0)` succeeds for a defunct process too."
-    try: os.kill(int(pid), 0)
+    try:
+        if int(pid) <= 0: return False   # `os.kill` broadcasts on 0 and -1 instead of asking about one process
+        os.kill(int(pid), 0)
     except ProcessLookupError: return False
     except PermissionError: return True
     except Exception: return False
