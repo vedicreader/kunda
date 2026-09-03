@@ -24,8 +24,7 @@ from .spec import KernelStartError, kernelspec_for
 from .pythons import app_env, env_name
 
 # %% ../nbs/05_pool.ipynb #51f1df0c
-#: How long a kernel may sit idle before the sweeper closes it. `$KUNDA_KERNEL_IDLE` overrides,
-#: spelled with the prefix `use_app` was given.
+#: How long a kernel may sit idle before the sweeper closes it. `$<prefix>KERNEL_IDLE` overrides.
 IDLE_SECONDS = 30*60
 #: How often the sweeper looks. Never longer than `idle`, or a short idle never fires.
 SWEEP_SECONDS = 60
@@ -98,7 +97,7 @@ class KernelPool:
         #: `runner_for(lang)` gives a class for a language with no Jupyter kernel; None means there
         #: is none, and `installed_spec` raises naming what would install one.
         #: `known_kernels` is the host's own `{language: kernelspec}`, which wins where it answers,
-        #: and `install_hints` its `{language: what would install a kernel for it}`.
+        #: and `install_hints` its `{language: install command}`.
         self.runner_for, self.known_kernels = runner_for, known_kernels or {}
         self.install_hints = install_hints or {}
         self.port, self.kernels, self._starting, self.broker = port, {}, {}, None
@@ -141,7 +140,7 @@ class KernelPool:
                 if self.gateway is None: self.gateway = GatewayService().start()
                 args['gateway'] = self.gateway
                 args.pop('lang', None)          # the gateway carries Python, and takes no language
-            if issubclass(cls, Kernel):   # only kunda's own kernel resolves a spec, so only it is told
+            if issubclass(cls, Kernel):   # only kunda's own kernel resolves a spec
                 args['known'] = self.known_kernels
                 args['install'] = self.install_hints.get(args.get('lang') or 'python', '')
             # a host's own runner is keyed, because it has no connection file to be found by
