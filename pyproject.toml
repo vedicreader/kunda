@@ -15,7 +15,7 @@ classifiers = ["Natural Language :: English", "Intended Audience :: Developers",
                "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3",
                "Programming Language :: Python :: 3 :: Only"]
 dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6', 'ipykernel>=6.29', 'ipymini>=0.1.17',
-                'dhrishti>=0.1.3', 'jupygate>=0.0.1', 'jupyasyncclient>=0.2.1,!=0.2.8',
+                'dhrishti>=0.1.4', 'jupygate>=0.0.1', 'jupyasyncclient>=0.2.1,!=0.2.8',
                 'jupywire>=0.1.1']
 
 [project.urls]
@@ -24,6 +24,9 @@ Documentation = "https://vedicreader.github.io/kunda"
 
 [project.entry-points.nbdev]
 kunda = "kunda._modidx:d"
+
+[tool.uv.sources]
+dhrishti = { path = "../dhrishti", editable = true }
 
 [tool.setuptools.dynamic]
 version = {attr = "kunda.__version__"}

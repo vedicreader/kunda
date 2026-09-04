@@ -2,32 +2,20 @@
 
 # %% ../nbs/05_pool.ipynb #ca6dc493
 from __future__ import annotations
-
-# %% auto #0
-__all__ = ['IDLE_SECONDS', 'SWEEP_SECONDS', 'KernelLimit', 'RuntimeBroker', 'KernelPool']
-
-# %% ../nbs/05_pool.ipynb #5b1833d7
 import asyncio, os, time
-
-# %% ../nbs/05_pool.ipynb #ed5c6d94
 from pathlib import Path
-
-# %% ../nbs/05_pool.ipynb #728ee31a
 from fastcore.all import L, first, ifnone
-
-# %% ../nbs/05_pool.ipynb #b544ab83
 from .kernel import GatewayKernel, GatewayService, Kernel
-
-# %% ../nbs/05_pool.ipynb #a76c379c
 from .kernel import KERNELS
 from .spec import KernelStartError, kernelspec_for
 from .pythons import app_env, env_name
 
+# %% auto #0
+__all__ = ['IDLE_SECONDS', 'SWEEP_SECONDS', 'KernelLimit', 'RuntimeBroker', 'KernelPool']
+
 # %% ../nbs/05_pool.ipynb #51f1df0c
 #: How long a kernel may sit idle before the sweeper closes it. `$<prefix>KERNEL_IDLE` overrides.
-IDLE_SECONDS = 30*60
-#: How often the sweeper looks. Never longer than `idle`, or a short idle never fires.
-SWEEP_SECONDS = 60
+IDLE_SECONDS, SWEEP_SECONDS = 30*60, 60
 
 # %% ../nbs/05_pool.ipynb #67229939
 class KernelLimit(RuntimeError):
@@ -41,8 +29,7 @@ class RuntimeBroker:
     "A ceiling across every pool in this process. Never evicts a namespace somebody is using."
     def __init__(self, max_kernels=None, auto_manage=None):
         self.max_kernels = int(max_kernels or app_env('MAX_KERNELS', 12))
-        self.auto_manage = bool(ifnone(auto_manage,
-            app_env('KERNEL_AUTO', '').lower() in ('1', 'true', 'yes')))
+        self.auto_manage = bool(ifnone(auto_manage, app_env('KERNEL_AUTO', '').lower() in ('1', 'true', 'yes')))
         self.pools, self._lock, self._reserved = [], asyncio.Lock(), set()
     def register(self, pool):
         if pool not in self.pools: self.pools.append(pool)
@@ -53,9 +40,8 @@ class RuntimeBroker:
         return [(pool, key, kernel) for pool in self.pools for key, kernel in pool.kernels.items()
             if kernel.alive]
     def status(self):
-        return {'live': len(self.live), 'limit': self.max_kernels,
-            'runtimes': [{'key': str(key), 'pid': kernel.pid, 'kind': kernel.kernel_kind,
-                'cwd': str(kernel.cwd or '')} for _, key, kernel in self.live]}
+        return {'live': len(self.live), 'limit': self.max_kernels, 'runtimes': [{'key': str(key), 'pid': kernel.pid,
+                     'kind': kernel.kernel_kind, 'cwd': str(kernel.cwd or '')} for _, key, kernel in self.live]}
     def stalest(self):
         "The idle kernel that has waited longest, as `(pool, key, kernel)`. None while all are busy."
         idle = [row for row in self.live if not row[2].busy]
@@ -64,20 +50,17 @@ class RuntimeBroker:
         "What the limit dialog needs to name the kernel it is offering to close."
         if (row := self.stalest()) is None: return None
         _, key, k = row
-        return {'key': str(key), 'name': Path(str(getattr(k, 'cwd', '') or key)).name,
-                'cwd': str(getattr(k, 'cwd', '') or ''), 'pid': getattr(k, 'pid', None),
-                'idle_for': int(k.idle_for)}
+        return {'key': str(key), 'name': Path(str(getattr(k, 'cwd', '') or key)).name, 'cwd': str(getattr(k, 'cwd', '') or ''),
+                'pid': getattr(k, 'pid', None), 'idle_for': int(k.idle_for)}
     async def admit(self, pool, key):
         token, evicted = (id(pool), key), None
         async with self._lock:
             if token in self._reserved or key in pool._starting: return
             if len(self.live) + len(self._reserved) >= self.max_kernels:
                 row = self.stalest()
-                if row is None: raise KernelLimit(
-                    f'kernel limit reached ({self.max_kernels}) and every runtime is busy; stop one '
+                if row is None: raise KernelLimit(f'kernel limit reached ({self.max_kernels}) and every runtime is busy; stop one '
                     f'or set {env_name("MAX_KERNELS")} to a larger value', limit=self.max_kernels)
-                if not self.auto_manage: raise KernelLimit(
-                    f'kernel limit reached ({self.max_kernels}); close an idle runtime '
+                if not self.auto_manage: raise KernelLimit(f'kernel limit reached ({self.max_kernels}); close an idle runtime '
                     f'or set {env_name("MAX_KERNELS")} to a larger value',
                     candidate=self._candidate(), limit=self.max_kernels)
                 evicted = self._candidate()
@@ -94,10 +77,6 @@ class KernelPool:
     def __init__(self, port=8000, default_kernel='ipykernel', default_python=None, broker=None,
         transport='direct', gateway=None, idle=None, runner_for=None, known_kernels=None,
         install_hints=None):
-        #: `runner_for(lang)` gives a class for a language with no Jupyter kernel; None means there
-        #: is none, and `installed_spec` raises naming what would install one.
-        #: `known_kernels` is the host's own `{language: kernelspec}`, which wins where it answers,
-        #: and `install_hints` its `{language: install command}`.
         self.runner_for, self.known_kernels = runner_for, known_kernels or {}
         self.install_hints = install_hints or {}
         self.port, self.kernels, self._starting, self.broker = port, {}, {}, None
@@ -108,10 +87,7 @@ class KernelPool:
         if broker is not None: broker.register(self)
         self.default_kernel = default_kernel if default_kernel in KERNELS else 'ipykernel'
         self.default_python = default_python
-    def choose(self,
-        kernel=None,
-        python=False,
-    ):
+    def choose(self,kernel=None,python=False):
         "Set what the *next* kernel starts as. Running kernels are left alone."
         if kernel and kernel in KERNELS: self.default_kernel = kernel
         if python is not False: self.default_python = python

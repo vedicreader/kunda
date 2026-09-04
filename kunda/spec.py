@@ -2,29 +2,17 @@
 
 # %% ../nbs/03_spec.ipynb #fc2835ab
 from __future__ import annotations
+import importlib.util, os, subprocess, sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from fastcore.all import L, first, ifnone
+from jupyter_client.kernelspec import KernelSpec
+from .support import HOST_PY, clean_env, support_paths
+from .pythons import app_name
 
 # %% auto #0
 __all__ = ['BOOTSTRAP', 'run_file_src', 'bootstrap_src', 'output_text', 'ExecOutcome', 'KernelStartError',
            'missing_kernel_module', 'installed_kernels', 'kernelspec_for', 'installed_spec']
-
-# %% ../nbs/03_spec.ipynb #3fec9357
-import importlib.util, os, subprocess, sys
-
-# %% ../nbs/03_spec.ipynb #4007c161
-from dataclasses import dataclass, field
-
-# %% ../nbs/03_spec.ipynb #c1636178
-from pathlib import Path
-
-# %% ../nbs/03_spec.ipynb #ee18f6ff
-from fastcore.all import L, first, ifnone
-
-# %% ../nbs/03_spec.ipynb #36f7ec39
-from jupyter_client.kernelspec import KernelSpec
-
-# %% ../nbs/03_spec.ipynb #d4779c27
-from .support import HOST_PY, clean_env, support_paths
-from .pythons import app_name
 
 # %% ../nbs/03_spec.ipynb #dfe72612
 def run_file_src(path, src=None, argv=(), cwd=None):
@@ -45,55 +33,35 @@ def run_file_src(path, src=None, argv=(), cwd=None):
 BOOTSTRAP = '''
 def _kd_bootstrap():
 	import sys, importlib.util
-	# Borrowed only by a kernel of the host's own minor version. A frozen build ships bytecode-only
-	# modules in its zip, and another version reads their magic number and refuses: an import that
-	# fell through to them died as `bad magic number`, not as anything about the inspector.
 	if tuple(sys.version_info[:2]) == tuple({version!r}):
 		for _p in {support!r}:
 			if _p and _p not in sys.path: sys.path.append(_p)
-	# The project venv may contain an older dhrishti. Pin the inspector protocol to this
-	# host installation while every other import stays project-local. Best-effort: a frozen
-	# build imports dhrishti out of a zip, where there is no file to point at. A failed pin
-	# must leave nothing in sys.modules, or the fallback import finds the broken module.
 	try:
 		if tuple(sys.version_info[:2]) != tuple({version!r}): raise ImportError('another Python')
-		for _n in [n for n in sys.modules if n == 'dhrishti' or n.startswith('dhrishti.')]:
-			del sys.modules[_n]
-		_spec = importlib.util.spec_from_file_location('dhrishti', {dhrishti_init!r},
-			submodule_search_locations=[{dhrishti_dir!r}])
+		for _n in [n for n in sys.modules if n == 'dhrishti' or n.startswith('dhrishti.')]: del sys.modules[_n]
+		_spec = importlib.util.spec_from_file_location('dhrishti', {dhrishti_init!r}, submodule_search_locations=[{dhrishti_dir!r}])
 		_pkg = importlib.util.module_from_spec(_spec)
 		sys.modules['dhrishti'] = _pkg
 		_spec.loader.exec_module(_pkg)
 	except Exception:
-		for _n in [n for n in sys.modules if n == 'dhrishti' or n.startswith('dhrishti.')]:
-			del sys.modules[_n]
+		for _n in [n for n in sys.modules if n == 'dhrishti' or n.startswith('dhrishti.')]: del sys.modules[_n]
 	import dhrishti.serving as ls
-	r = ls.serve_in_kernel(name={name!r}, port={port!r}, agent={agent!r}, token={token!r},
-	                       session_dir={sessions!r}, agent_session_dir={agent_sessions!r})
-	if {ipymini!r}:
-		try:
-			from IPython import get_ipython
-			ls.set_kernel_backend(getattr(get_ipython(), 'kernel', None))
-		except Exception: ls.set_kernel_backend(None)
+	r = ls.serve_in_kernel(name={name!r}, port={port!r}, agent={agent!r}, token={token!r}, session_dir={sessions!r}, agent_session_dir={agent_sessions!r})
 	return r
 try: _kd_bootstrap()
 finally: del _kd_bootstrap
 '''
 
 # %% ../nbs/03_spec.ipynb #5a57fb04
-def bootstrap_src(name=None, port=8000, agent='restricted', token=True, kernel='ipykernel',
-                  sessions=None, agent_sessions=None):
+def bootstrap_src(name=None, port=8000, agent='restricted', token=True, sessions=None, agent_sessions=None):
     "The bootstrap cell source for a kernel that should host an inspector."
-    sessions, agent_sessions = (ifnone(sessions, f'_{app_name()}_sessions'),
-                                ifnone(agent_sessions, f'_{app_name()}_agent_sessions'))
+    sessions, agent_sessions = (ifnone(sessions, f'_{app_name()}_sessions'), ifnone(agent_sessions, f'_{app_name()}_agent_sessions'))
     support = support_paths()
     spec = importlib.util.find_spec('dhrishti')
     if spec is None or not spec.origin: raise RuntimeError('dhrishti is not installed')
     dhrishti_init = str(Path(spec.origin).resolve())
-    return BOOTSTRAP.format(name=name, port=port, agent=agent, token=token, support=support,
-        sessions=sessions, agent_sessions=agent_sessions,
-        version=HOST_PY, dhrishti_init=dhrishti_init,
-        dhrishti_dir=str(Path(dhrishti_init).parent), ipymini=(kernel == 'ipymini'))
+    return BOOTSTRAP.format(name=name, port=port, agent=agent, token=token, support=support, sessions=sessions, agent_sessions=agent_sessions,
+        version=HOST_PY, dhrishti_init=dhrishti_init, dhrishti_dir=str(Path(dhrishti_init).parent))
 
 # %% ../nbs/03_spec.ipynb #ea6cc0c6
 def output_text(outs):
@@ -149,8 +117,7 @@ def _frozen_pythonpath():
     if not getattr(sys, 'frozen', False): return None
     resources = Path(sys.executable).resolve().parent.parent/'Resources'
     version = f'python{sys.version_info.major}.{sys.version_info.minor}'
-    bundled = [resources/'lib'/version, resources/'lib'/version/'lib-dynload',
-        resources/'lib'/f'python{sys.version_info.major}{sys.version_info.minor}.zip']
+    bundled = [resources/'lib'/version, resources/'lib'/version/'lib-dynload', resources/'lib'/f'python{sys.version_info.major}{sys.version_info.minor}.zip']
     return os.pathsep.join(dict.fromkeys(str(p) for p in [*bundled, *sys.path] if p))
 
 # %% ../nbs/03_spec.ipynb #6792a4d7
@@ -162,10 +129,7 @@ def _kernel_env(python=None):
 
 # %% ../nbs/03_spec.ipynb #fc6f8545
 def _spec(python=None, name='python3', kernel='ipykernel', lang='python', known=None, install=''):
-    """A kernelspec pinned to a specific interpreter, so the kernel runs in *this* venv.
-
-    Python is the language an interpreter is pinned for. Any other language runs whatever
-    kernelspec is installed for it, unmodified, because there is no venv of ours to point it at."""
+    "Kernelspec pinned to a specific interpreter for Python; other languages return their installed spec unchanged."
     if lang and lang != 'python': return installed_spec(lang, known, install)
     runtime = _runtime_python(python)
     if kernel == 'ipymini': argv = [runtime, '-Xfrozen_modules=off', '-m', 'ipymini', '-f', '{connection_file}']
@@ -182,11 +146,7 @@ def installed_kernels():
 
 # %% ../nbs/03_spec.ipynb #f9e15578
 def kernelspec_for(lang, known=None):
-    """The installed kernelspec name that runs `lang`, or None.
-
-    `known` is a caller's own `{language: kernelspec}` mapping, which wins where it answers: a host
-    with a language registry knows which of several installed kernels it means.
-    """
+    "Return the installed kernelspec name for `lang`, checking `known` first; None if not found."
     specs = installed_kernels()
     if (name := (known or {}).get(str(lang))) and name in specs: return name
     return first(n for n, s in specs.items()

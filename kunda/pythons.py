@@ -33,25 +33,14 @@ def app_env(name, default=None):
     return os.environ.get(env_name(name), default)
 
 # %% ../nbs/00_pythons.ipynb #3f4aff63
-#: Directory names a project keeps its virtual environment in, best first.
 VENV_DIRS = ('.venv', 'venv', 'env', '.env')
-#: Where the interpreter sits inside one, on either platform.
 VENV_BINS = ('bin/python', 'Scripts/python.exe')
-#: The interpreters `nearest_python` looks for, as paths relative to a project folder.
 VENV_PYTHONS = tuple(f'{d}/{b}' for d in VENV_DIRS for b in VENV_BINS)
-
-#: Names a frozen host sets to point an interpreter at its own bundle.
 BUNDLE_ONLY = ('PYTHONHOME', 'PYTHONPATH', 'PYTHONEXECUTABLE', '__PYVENV_LAUNCHER__', 'RESOURCEPATH')
 
 # %% ../nbs/00_pythons.ipynb #c9c447e3
 def strip_bundle(env, frozen=None):
-    """`env` without a frozen host's interpreter redirection, unchanged where there is none.
-
-    py2app and py2exe point `PYTHONHOME` and `PYTHONPATH` at the bundle so its own helper starts.
-    A child that keeps them imports the bundle's standard library under another interpreter and
-    fails somewhere that names nothing to do with the cause. Outside a bundle this returns what it
-    was given, untouched, so a caller that claimed nothing about an environment still claims nothing.
-    """
+    "Strip py2app/py2exe bundle vars from env; no-op outside a bundle."
     if not (getattr(sys, 'frozen', False) if frozen is None else frozen): return env
     for name in BUNDLE_ONLY: env.pop(name, None)
     env['PYTHONUTF8'] = '1'
@@ -75,11 +64,7 @@ def venv_env(python=None, env=None):
 
 # %% ../nbs/00_pythons.ipynb #4f5aab23
 def nearest_marked(start, markers, stop=None):
-    """The nearest directory at or above `start` holding one of `markers`, and the marker it holds.
-
-    `stop` is the folder the walk must not pass: what is above it belongs to something else.
-    `markers` are relative paths, so `.venv/bin/python` asks about a file and `.git` a directory.
-    """
+    "Walk up from `start` to `stop`, return (dir, marker) for the first dir holding a marker."
     try: start = Path(start).resolve()
     except (OSError, ValueError): return None, None
     try: stop = Path(stop).resolve() if stop else None
@@ -109,13 +94,7 @@ def nearest_python(start, stop=None):
 
 # %% ../nbs/00_pythons.ipynb #7c3ae36b
 def python_for(cwd=None, stop=None, roots=(), default=None):
-    """The interpreter anything spawned for `cwd` should be inside.
-
-    The walk up from `cwd` first, stopping at `stop` — the open folder, so a venv belonging to
-    something above the workspace is not borrowed. Then whatever the caller nominates as its
-    default, then the first venv among `roots`. None when nothing answers, which means "this
-    interpreter" to everything downstream.
-    """
+    "Pick interpreter for `cwd`: walk up to `stop`, then `default`, then first venv in `roots`; None means use current."
     if cwd and (py := nearest_python(cwd, stop)): return py
     return default or project_python(roots)
 
@@ -128,11 +107,7 @@ def _venv_roots(roots):
         except OSError: pass
 
 def find_pythons(roots=(), current=None, this_label='this one'):
-    """Interpreters a kernel could be launched under: this one, `current`, and the venvs in reach.
-
-    `current` is what `python_for` resolved for whatever is open, which the walk up can find deeper
-    than a folder of checkouts is scanned. Listing it is what lets a picker mark it.
-    """
+    "Kernel launch options: this interpreter (`current`) and all reachable venvs.`current` is resolved by `python_for` and may be deeper than standard search.Listing enables picker selection."
     out, seen = L(), set()
     def add(p, label):
         p = str(p)

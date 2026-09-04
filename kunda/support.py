@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 # %% auto #0
-__all__ = ['HOST_PY', 'INSPECTOR', 'INSPECTOR_TTL', 'KERNEL_PACKAGES', 'work_dir', 'support_paths', 'kernel_support',
-           'inspector_support', 'installable', 'as_installed', 'install_kernel_support', 'install_inspector_support']
+__all__ = ['HOST_PY', 'INSPECTOR', 'INSPECTOR_TTL', 'KERNEL_PACKAGES', 'IMPORT_FAULTS', 'work_dir', 'support_paths',
+           'kernel_support', 'inspector_support', 'import_failure', 'installable', 'as_installed',
+           'install_kernel_support', 'install_inspector_support']
 
 # %% ../nbs/01_support.ipynb #f4b7e620
 import os, shutil, subprocess, sys, threading, time
@@ -21,23 +22,7 @@ from pathlib import Path
 HOST_PY = tuple(sys.version_info[:2])
 
 # %% ../nbs/01_support.ipynb #f361168d
-#: What a kernel that cannot borrow Leela's own copy has to have of its own. `dhrishti` and not
-#: its imports: numpy and pandas are the two that are noticed missing, but IPython comes with it
-#: and the bundle's is bytecode for another version. Unpinned, because the versions are the
-#: project's choice. Pinned by `tests/test_runtime.py`.
-INSPECTOR = ('dhrishti',)
-
-# %% ../nbs/01_support.ipynb #f6546664
-#: Seconds an inspector answer is reused for. A person who installs pandas by hand should not have
-#: to restart Leela to be believed.
-INSPECTOR_TTL = 90
-
-# %% ../nbs/01_support.ipynb #5950aa0e
-#: What a project environment needs to run either kernel. `ipymini` names `comm`, `ipython` and
-#: `kernmini` and no more, but imports `fastcore` and `microio`, and `kernmini` moved `debug` out
-#: from under it after the version `ipymini` asks for, so resolving the declared requirements alone
-#: installs a kernel that cannot start. These are the distributions, and `as_installed` supplies the
-#: versions.
+INSPECTOR, INSPECTOR_TTL = ('dhrishti',), 90
 KERNEL_PACKAGES = ('ipykernel', 'ipymini', 'kernmini', 'fastcore', 'microio')
 
 # %% ../nbs/01_support.ipynb #e11cebe4
@@ -51,12 +36,7 @@ from .pythons import BUNDLE_ONLY, clean_env, strip_bundle
 
 # %% ../nbs/01_support.ipynb #5663cd06
 def work_dir(cwd=None):
-    """`cwd` as a string, or a directory a child can actually be started in.
-
-    A double-clicked app inherits `/` as its working directory, and one started from `open` inherits
-    the bundle, which is read-only and code-signed. Either way a kernel launched there cannot write
-    a file beside itself, and the error it gives says nothing about why.
-    """
+    "`cwd` as a string, falling back to a writable directory when the process inherited `/` or a read-only bundle."
     if cwd: return str(cwd)
     here = os.getcwd()
     if not getattr(sys, 'frozen', False): return here
@@ -79,12 +59,7 @@ class _Failed:
     def __init__(self, err): self.stderr = err
 
 def _run(args, timeout=180):
-    """Run a command and hand back its result, whether or not it ran.
-
-    An interpreter that is not there is exactly what `kernel_support` exists to report, so the
-    `FileNotFoundError` from spawning it is an answer rather than an error. A timeout is the same
-    kind of answer: the environment is unusable, and saying which is the caller's business.
-    """
+    "Run a command and return its result; missing interpreter and timeout are returned as answers, not raised."
     try:
         return subprocess.run([str(x) for x in args], env=clean_env(), text=True,
             encoding='utf-8', errors='replace', capture_output=True, timeout=timeout)
@@ -114,17 +89,19 @@ def kernel_support(python):
 
 # %% ../nbs/01_support.ipynb #96fb5abf
 def inspector_support(python, refresh=False):
-    """Whether a kernel on `python` could import the live-variable inspector.
-
-    Asked of the pinned dhrishti itself rather than of a list of package names, so a dependency
-    added upstream is answered for too, and so the answer includes what stopped it.
-    """
+    "Check whether `python` can import the live-variable inspector, returning what blocked it if not."
     python = str(Path(python).expanduser())
     hit = _INSPECT.get(python)
     if not refresh and hit and time.time() - hit[0] < INSPECTOR_TTL: return hit[1]
     state = _probe(python, 'dhrishti.serving', support_paths())
     _INSPECT[python] = (time.time(), state)
     return state
+
+IMPORT_FAULTS = ('ModuleNotFoundError', 'ImportError', 'No module named')
+
+def import_failure(err):
+    "Whether bootstrap failed on an inspector import."
+    return any(s in (err or '') for s in IMPORT_FAULTS)
 
 # %% ../nbs/01_support.ipynb #fdd325b4
 def installable(python):
@@ -136,13 +113,7 @@ def installable(python):
 
 # %% ../nbs/01_support.ipynb #a9657e48
 def as_installed(names=KERNEL_PACKAGES):
-    """`names` pinned to the versions this process is running, and left loose where it has none.
-
-    The host's own environment is the one combination of these known to start a kernel: it was
-    resolved from a lock and tested. Asking an index for the newest of each instead is what
-    produced `ipymini 0.1.20` beside `kernmini 0.1.9`, which import each other and do not fit.
-    When the host upgrades, so does what it installs.
-    """
+    "Pin `names` to the versions this process runs; leave unpinned what it doesn't have, so installs stay compatible with the host."
     from importlib.metadata import PackageNotFoundError, version
     out = []
     for name in names:
@@ -161,22 +132,12 @@ def _attempts(python, packages):
     return out
 
 # %% ../nbs/01_support.ipynb #2dd32fe7
-def _log(command, p):
-    return {'command': command, 'returncode': p.returncode,
-        'output': (p.stdout + '\n' + p.stderr).strip()[-8000:]}
-
-# %% ../nbs/01_support.ipynb #3cf3f8e0
-def _detail(logs):
-    return next((a['output'] for a in reversed(logs) if a['output']), 'no installer answered')
+def _log(command, p): return {'command': command, 'returncode': p.returncode,'output': (p.stdout + '\n' + p.stderr).strip()[-8000:]}
+def _detail(logs): return next((a['output'] for a in reversed(logs) if a['output']), 'no installer answered')
 
 # %% ../nbs/01_support.ipynb #c4af38c4
 def install_kernel_support(python, packages=None):
-    """Install kernel packages, preferring uv for environments intentionally lacking pip.
-
-    An installer that returned 0 and left a kernel that will not import is a failure of the
-    packages, not of the installer, and saying so is the difference between a report about
-    `ipymini` and one about the `pip` a uv environment was never going to have.
-    """
+    "Install kernel packages via uv or pip; verify the import works after, so failures name the package not the installer."
     python = str(Path(python).expanduser().absolute())
     packages, logs, unimportable = list(packages or as_installed()), [], ''
     with _lock_for(python):
@@ -185,10 +146,8 @@ def install_kernel_support(python, packages=None):
             logs.append(_log(command, p))
             if p.returncode == 0:
                 support = kernel_support(python)
-                if all(x['available'] for x in support.values()):
-                    return {'ok': True, 'python': python, 'support': support, 'attempts': logs}
-                unimportable = '; '.join(f"{name} installed but does not import ({x['error']})"
-                                         for name, x in support.items() if not x['available'])
+                if all(x['available'] for x in support.values()): return {'ok': True, 'python': python, 'support': support, 'attempts': logs}
+                unimportable = '; '.join(f"{name} installed but does not import ({x['error']})" for name, x in support.items() if not x['available'])
     raise RuntimeError(f'kernel support installation failed: {unimportable or _detail(logs)}')
 
 # %% ../nbs/01_support.ipynb #4ce3e0ba
@@ -202,8 +161,6 @@ def install_inspector_support(python, packages=INSPECTOR):
             logs.append(_log(command, p))
             if p.returncode != 0: continue
             state = inspector_support(python, refresh=True)
-            if state['available']:
-                return {'ok': True, 'python': python, 'inspector': state, 'attempts': logs}
-            raise RuntimeError(f'{" and ".join(packages)} are installed, and the inspector still '
-                               f'will not import: {state["error"]}')
+            if state['available']: return {'ok': True, 'python': python, 'inspector': state, 'attempts': logs}
+            raise RuntimeError(f'{" and ".join(packages)} are installed, and the inspector still will not import: {state["error"]}')
     raise RuntimeError(f'could not install {" and ".join(packages)}: {_detail(logs)}')

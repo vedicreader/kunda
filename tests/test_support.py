@@ -2,8 +2,8 @@
 import sys
 from pathlib import Path
 import pytest
-from kunda.support import (HOST_PY, KERNEL_PACKAGES, as_installed, inspector_support, installable,
-                           kernel_support, support_paths, work_dir)
+from kunda.support import (HOST_PY, KERNEL_PACKAGES, as_installed, import_failure, inspector_support,
+                           installable, kernel_support, support_paths, work_dir)
 
 def test_this_interpreter_is_never_installed_into():
     "Installing into the environment doing the installing is how a host breaks itself mid-run."
@@ -41,6 +41,10 @@ def test_the_inspector_answer_is_cached_but_can_be_refreshed():
     assert set(first) >= {'available', 'version', 'error'}
     assert inspector_support(sys.executable) == first, 'the second ask is the cached one'
     assert set(inspector_support(sys.executable, refresh=True)) == set(first)
+
+def test_inspector_import_errors_are_recognized_anywhere_in_the_message():
+    assert not import_failure('ValueError: bad shape')
+    assert import_failure('numpy ABI advice\nImportError: numpy.core.multiarray failed to import')
 
 def test_a_child_is_given_a_directory_it_can_actually_write_in(tmp_path):
     """A double-clicked app inherits `/`, and one started from `open` inherits the bundle, which is

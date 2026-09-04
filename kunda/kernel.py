@@ -2,44 +2,22 @@
 
 # %% ../nbs/04_kernel.ipynb #f9c0be05
 from __future__ import annotations
+import asyncio, importlib.util, json, os, queue, shutil, sys, tempfile, time, uuid, warnings
+from pathlib import Path
+from fastcore.all import L, first, ifnone, store_attr
+from fastcore.ansi import strip_ansi
+from jupyter_client.manager import AsyncKernelManager
+from dhrishti.registry import active, reg_dir
+from .pythons import app_name
+from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
+from .spec import ExecOutcome, KernelStartError, _kernel_env, _runtime_python, _spec, bootstrap_src, kernelspec_for, missing_kernel_module, output_text
 
 # %% auto #0
 __all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'GATEWAY_DEPS', 'ipymini_available', 'Kernel', 'check_gateway_deps', 'GatewayService',
            'GatewayKernel']
 
-# %% ../nbs/04_kernel.ipynb #a4bf4b54
-import asyncio, importlib.util, json, os, queue, shutil, sys, tempfile, time, uuid, warnings
-
-# %% ../nbs/04_kernel.ipynb #76a82550
-from pathlib import Path
-
-# %% ../nbs/04_kernel.ipynb #c0b18a2f
-from fastcore.all import L, first, ifnone, store_attr
-
-# %% ../nbs/04_kernel.ipynb #fda50218
-from fastcore.ansi import strip_ansi
-
-# %% ../nbs/04_kernel.ipynb #497e76ce
-from jupyter_client.manager import AsyncKernelManager
-
-# %% ../nbs/04_kernel.ipynb #a1a83be0
-from .registry import active, reg_dir
-
-# %% ../nbs/04_kernel.ipynb #e46e8e59
-from .pythons import app_name
-
-# %% ../nbs/04_kernel.ipynb #23481289
-from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
-
-# %% ../nbs/04_kernel.ipynb #a3a6b91c
-from .spec import (ExecOutcome, KernelStartError, _kernel_env, _runtime_python, _spec,
-                        bootstrap_src, kernelspec_for, missing_kernel_module, output_text)
-
 # %% ../nbs/04_kernel.ipynb #cf6bf71a
-KERNELS = ('ipykernel', 'ipymini')
-
-# %% ../nbs/04_kernel.ipynb #da674c06
-SHUTDOWN_WAIT = 5.0
+KERNELS, SHUTDOWN_WAIT = ('ipykernel', 'ipymini'), 5.0
 
 # %% ../nbs/04_kernel.ipynb #12f0f0f2
 async def _give_up_after(coro, timeout=SHUTDOWN_WAIT):
@@ -86,7 +64,7 @@ class _Inspector:
         return self.name
     async def bootstrap(self):
         "Start the inspector inside the kernel and record its base URL."
-        src = bootstrap_src(self._boot_name, self.port, self.agent, True, self.kernel)
+        src = bootstrap_src(self._boot_name, self.port, self.agent, True)
         r = await self.execute(src, silent=True, store_history=False)
         if not r.ok:
             self.boot_error = r.error or r.text or 'inspector bootstrap failed'
@@ -158,8 +136,7 @@ class Kernel(_Inspector):
         if kernel not in KERNELS: kernel = 'ipykernel'
         if lang != 'python': inspect, kernel = False, 'ipykernel'
         if kernel == 'ipymini' and not ipymini_available():
-            warnings.warn("ipymini is unavailable in this interpreter; falling back to ipykernel. "
-                "Install it with `install_kernel_support`.")
+            warnings.warn("ipymini is unavailable in this interpreter; falling back to ipykernel. Install it with `install_kernel_support`.")
             kernel = 'ipykernel'
         store_attr()
         self.km = self.kc = None
@@ -202,15 +179,13 @@ class Kernel(_Inspector):
         elif self.kernel == 'ipykernel':
             manager_kw['transport_encryption'] = 'required'
         self.km = AsyncKernelManager(**manager_kw)
-        self.km._kernel_spec = _spec(self.python, ifnone(self.name, 'python3'), self.kernel,
-                                     self.lang, self.known, self.install)
+        self.km._kernel_spec = _spec(self.python, ifnone(self.name, 'python3'), self.kernel, self.lang, self.known, self.install)
         cwd = work_dir(self.cwd)
         try:
             await self.km.start_kernel(cwd=cwd, env=_kernel_env(self.python))
             client_kw = {}
             if getattr(self.km, 'curve_publickey', None) is not None:
-                client_kw.update(curve_publickey=self.km.curve_publickey,
-                    curve_secretkey=self.km.curve_secretkey)
+                client_kw.update(curve_publickey=self.km.curve_publickey,curve_secretkey=self.km.curve_secretkey)
             self.kc = self.km.client(**client_kw)
             self.kc.start_channels()
             await self.kc.wait_for_ready(timeout=timeout)
@@ -456,8 +431,6 @@ def check_gateway_deps():
             f'gateway transport needs {name}, which is not installed: '
             f'pip install {name}') from e
         if not spec: continue
-        # No metadata is a vendored or otherwise unregistered copy, whose version cannot be
-        # checked. Anything else reading it is a real fault and belongs to the caller.
         try: version = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError: continue
         if not SpecifierSet(spec, prereleases=True).contains(version): raise RuntimeError(
