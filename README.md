@@ -11,67 +11,55 @@ pip install kunda
 
 ## Select an interpreter
 
+[`python_for`](https://vedicreader.github.io/kunda/pythons.html#python_for) searches parent folders up to `stop`, then uses the supplied default or a virtual environment under `roots`. [`venv_env`](https://vedicreader.github.io/kunda/pythons.html#venv_env) prepares the child’s environment.
+
 ``` python
-from kunda import python_for, find_pythons, venv_env
-
-python_for('~/code/myrepo/src', stop='~/code/myrepo')
-find_pythons(roots=['~/code'], current=...)
-venv_env(python)
+selected = python_for(root/'src', stop=root)
+choices = find_pythons(roots=[root], current=selected)
+environment = venv_env(selected, env={'PATH': '/usr/bin'})
+Path(selected).relative_to(root), [row['label'] for row in choices], environment['VIRTUAL_ENV']
 ```
-
-[`python_for`](https://vedicreader.github.io/kunda/pythons.html#python_for) searches parent folders up to `stop`. It then uses the supplied default or a virtual environment under `roots`. `None` means the current interpreter.
-
-[`venv_env`](https://vedicreader.github.io/kunda/pythons.html#venv_env) removes frozen-host interpreter variables before starting the child.
 
 ## Run one kernel
 
+Execution errors are returned in [`ExecOutcome`](https://vedicreader.github.io/kunda/spec.html#execoutcome) and leave the kernel available.
+
 ``` python
-from kunda import Kernel
-
-k = Kernel(cwd='~/code/myrepo', python=..., kernel='ipymini')
-await k.start()
-out = await k.execute('df.head()', on_output=print)
-out.ok, out.text, out.execution_count
-await k.complete('df.he', 5)
-await k.restart()
-await k.shutdown()
+kernel = Kernel(cwd=root, python=sys.executable, inspect=True)
+await kernel.start()
+outcome = await kernel.execute('value = 21 * 2; value')
+completion = await kernel.complete('val', 3)
+outcome.ok, outcome.text, completion['matches'][:3]
 ```
-
-[`ExecOutcome`](https://vedicreader.github.io/kunda/spec.html#execoutcome) contains execution errors and leaves the kernel available. [`missing_kernel_module`](https://vedicreader.github.io/kunda/spec.html#missing_kernel_module) reports a missing launcher after startup fails. Local kernels use `jupyter_client`; gateway kernels use the same interface over WebSocket.
 
 ## Keep several kernels alive
 
-``` python
-from kunda import KernelPool, RuntimeBroker
-
-pool = KernelPool(broker=RuntimeBroker(max_kernels=12), idle=30*60)
-k = await pool.get('notebook-1', cwd=..., python=..., inspect=True)
-pool.peek('notebook-1')
-await pool.close('notebook-1')
-await pool.close_all()
-```
-
-Each key has at most one kernel. The pool discards failed starts and keeps busy kernels. `idle=0` disables reaping.
-
-[`RuntimeBroker`](https://vedicreader.github.io/kunda/pool.html#runtimebroker) enforces a process-wide limit. A host can also provide runners and known kernelspecs for other languages.
+Each key has at most one kernel. [`RuntimeBroker`](https://vedicreader.github.io/kunda/pool.html#runtimebroker) enforces a process-wide limit, and `idle=0` disables reaping.
 
 ``` python
-KernelPool(runner_for=lambda lang: MyRustRunner if lang == 'rust' else None,
-           known_kernels={'julia': 'julia-1.10'})
+class RustRunner: pass
+
+broker = RuntimeBroker(max_kernels=12)
+pool = KernelPool(broker=broker, idle=0,
+                  runner_for=lambda lang: RustRunner if lang == 'rust' else None,
+                  known_kernels={'julia': 'julia-1.10'})
+broker.status(), pool._class_for({'lang': 'rust'}).__name__
 ```
 
-## Install kernel support
+## Kernel support
+
+Support probes do not install packages. Installation uses the host’s installed package versions.
 
 ``` python
-from kunda import kernel_support, install_kernel_support, installable
-
-kernel_support(python)
-installable(python)
-install_kernel_support(python)
+support = kernel_support(python)
+{k: v['available'] for k, v in support.items()}, installable(python)
 ```
-
-Installation uses the host’s installed package versions. It fails when either launcher still cannot import.
 
 ## Inspect live variables
 
-With `inspect=True`, Kunda starts Dhrishti inside the kernel and reads its registry. A matching Python minor version uses the host package. Other versions use the project installation.
+With `inspect=True`, Kunda starts Dhrishti inside the kernel and reads its registry.
+
+``` python
+await kernel.execute('visible_value = 42')
+'name' in (await kernel.names()), 'visible_value' in (await kernel.names())
+```
