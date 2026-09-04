@@ -7,24 +7,16 @@ name = "kunda"
 dynamic = ["version"]
 description = "the vessel that holds live kernels: which interpreter each burns in, and how many stay alight"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [{name = "Karthik Rajgopal", email = "karthik.rajgopal@hotmail.com"}]
 keywords = ['jupyter', 'kernel', 'ipykernel', 'ipymini', 'venv']
 classifiers = ["Natural Language :: English", "Intended Audience :: Developers",
                "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3",
                "Programming Language :: Python :: 3 :: Only"]
-dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6']
-
-[project.optional-dependencies]
-# The kernels themselves. A host that only wants to know which interpreter a folder uses needs
-# neither, which is why `kunda.pythons` imports nothing but fastcore.
-kernels = ['ipykernel>=6.29', 'ipymini>=0.1.17']
-# Live variables in a running kernel, over HTTP to an inspector the bootstrap starts inside it.
-inspect = ['dhrishti>=0.1.3']
-# Kernels reached through a websocket gateway instead of started here.
-gateway = ['jupygate>=0.0.1', 'jupyasyncclient>=0.2.1,!=0.2.8', 'jupywire>=0.1.1']
-dev = ['pytest>=8.0.0', 'pytest-asyncio>=1.0.0', 'nbdev>=2.4.6', 'kunda[kernels]']
+dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6', 'ipykernel>=6.29', 'ipymini>=0.1.17',
+                'dhrishti>=0.1.3', 'jupygate>=0.0.1', 'jupyasyncclient>=0.2.1,!=0.2.8',
+                'jupywire>=0.1.1']
 
 [project.urls]
 Repository = "https://github.com/vedicreader/kunda"
@@ -46,3 +38,6 @@ doc_baseurl = "/kunda"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = ['pytest>=8.0.0', 'pytest-asyncio>=1.0.0', 'nbdev>=2.4.6']

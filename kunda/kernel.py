@@ -441,26 +441,26 @@ class Kernel(_Inspector):
         return strip_ansi((c.get('data') or {}).get('text/plain') or '')
 
 # %% ../nbs/04_kernel.ipynb #714bc503
-#: What the `[gateway]` extra installs, with the version range each import has to satisfy.
+#: What a gateway needs, with the version range each import has to satisfy.
 #: `jupyasyncclient` 0.2.8 leaves the gateway executing nothing, so it is excluded here as in `pyproject.toml`.
 GATEWAY_DEPS = (('jupygate', ''), ('jupyasyncclient', '>=0.2.1,!=0.2.8'))
 
 # %% ../nbs/04_kernel.ipynb #27a7ac65
 def check_gateway_deps():
-    "Raise a RuntimeError naming the distribution when the `[gateway]` extra is missing or out of range."
+    "Raise a RuntimeError naming the distribution a gateway needs, when it is missing or out of range."
     import importlib.metadata
     from packaging.specifiers import SpecifierSet
     for name, spec in GATEWAY_DEPS:
         try: importlib.import_module(name)
         except ImportError as e: raise RuntimeError(
-            f'gateway transport needs `pip install "{app_name()}[gateway]"`; '
-            f'{name} is not installed') from e
+            f'gateway transport needs {name}, which is not installed: '
+            f'pip install {name}') from e
         if not spec: continue
         try: version = importlib.metadata.version(name)
         except Exception: continue   # unknown version, such as a vendored copy, is not a reason to refuse
         if not SpecifierSet(spec, prereleases=True).contains(version): raise RuntimeError(
             f'gateway transport needs {name}{spec}, and {version} is installed; '
-            f'reinstall with `pip install "{app_name()}[gateway]"`')
+            f'reinstall with `pip install "{name}{spec}"`')
 
 # %% ../nbs/04_kernel.ipynb #a15c29b5
 class GatewayService:
