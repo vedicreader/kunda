@@ -156,7 +156,7 @@ class Kernel(_Inspector):
         install='',        # what would install a kernel for `lang`, for the error when none is
     ):
         if kernel not in KERNELS: kernel = 'ipykernel'
-        if lang != 'python': inspect, kernel = False, 'ipykernel'   # dhrishti reads Python namespaces
+        if lang != 'python': inspect, kernel = False, 'ipykernel'
         if kernel == 'ipymini' and not ipymini_available():
             warnings.warn("ipymini is unavailable in this interpreter; falling back to ipykernel. "
                 "Install it with `install_kernel_support`.")
@@ -447,7 +447,7 @@ GATEWAY_DEPS = (('jupygate', ''), ('jupyasyncclient', '>=0.2.1,!=0.2.8'))
 
 # %% ../nbs/04_kernel.ipynb #27a7ac65
 def check_gateway_deps():
-    "Raise a RuntimeError naming the distribution a gateway needs, when it is missing or out of range."
+    "Check the gateway dependencies and versions."
     import importlib.metadata
     from packaging.specifiers import SpecifierSet
     for name, spec in GATEWAY_DEPS:
@@ -456,8 +456,10 @@ def check_gateway_deps():
             f'gateway transport needs {name}, which is not installed: '
             f'pip install {name}') from e
         if not spec: continue
+        # No metadata is a vendored or otherwise unregistered copy, whose version cannot be
+        # checked. Anything else reading it is a real fault and belongs to the caller.
         try: version = importlib.metadata.version(name)
-        except Exception: continue   # unknown version, such as a vendored copy, is not a reason to refuse
+        except importlib.metadata.PackageNotFoundError: continue
         if not SpecifierSet(spec, prereleases=True).contains(version): raise RuntimeError(
             f'gateway transport needs {name}{spec}, and {version} is installed; '
             f'reinstall with `pip install "{name}{spec}"`')
@@ -471,12 +473,12 @@ class GatewayService:
     @property
     def url(self): return getattr(self.server, 'url', None) or f'http://127.0.0.1:{self.port}'
     def start(self):
-        check_gateway_deps()   # both imports, before the early return, so every kernel start is covered
+        check_gateway_deps()
         if self.server is not None: return self
         from jupygate.core import create_app, serve
         argv = [sys.executable, '-m', 'ipykernel_launcher', '-f', '{connection_file}']
         try: self.server = serve(create_app(argv=argv, auth_token=self.token), port=self.port, in_thread=True)
-        except OSError as e: raise RuntimeError(   # jupygate gives up on the listen with a TimeoutError
+        except OSError as e: raise RuntimeError(
             f'gateway transport could not listen on port {self.port}; another {app_name()} or a '
             'leftover gateway is holding it') from e
         return self

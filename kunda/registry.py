@@ -38,7 +38,7 @@ def reg_dir():
 def alive(pid):
     "Is `pid` running and not a zombie? `os.kill(pid, 0)` succeeds for a defunct process too."
     try:
-        if int(pid) <= 0: return False   # `os.kill` broadcasts on 0 and -1 instead of asking about one process
+        if int(pid) <= 0: return False
         os.kill(int(pid), 0)
     except ProcessLookupError: return False
     except PermissionError: return True
@@ -47,7 +47,7 @@ def alive(pid):
         st = subprocess.run(['ps', '-o', 'state=', '-p', str(pid)],
                             capture_output=True, text=True, timeout=2).stdout.strip()
         if st[:1] == 'Z': return False
-    except Exception: pass   # no `ps`, or too slow; `os.kill` already said yes
+    except Exception: pass
     return True
 
 def active():

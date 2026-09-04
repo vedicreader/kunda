@@ -87,8 +87,6 @@ def bootstrap_src(name=None, port=8000, agent='restricted', token=True, kernel='
     sessions, agent_sessions = (ifnone(sessions, f'_{app_name()}_sessions'),
                                 ifnone(agent_sessions, f'_{app_name()}_agent_sessions'))
     support = support_paths()
-    # Found, not imported: importing dhrishti for its `__file__` drags IPython, pandas and
-    # numpy into the host process, which has no use for them. The kernel does the importing.
     spec = importlib.util.find_spec('dhrishti')
     if spec is None or not spec.origin: raise RuntimeError('dhrishti is not installed')
     dhrishti_init = str(Path(spec.origin).resolve())
@@ -136,18 +134,13 @@ class KernelStartError(RuntimeError):
 
 # %% ../nbs/03_spec.ipynb #159331bd
 def missing_kernel_module(python=None, kernel='ipykernel'):
-    """The kernel package `python` cannot import, or None.
-
-    A venv without it exits before the first message, and jupyter_client can only report that the
-    kernel died before replying to `kernel_info`. Asked here, the environment says which module it
-    is short of. Only the failure path pays for this.
-    """
+    "The kernel package `python` cannot import, or None."
     mod = 'ipymini' if kernel == 'ipymini' else 'ipykernel_launcher'
     exe = _runtime_python(python)
     if exe == sys.executable: return None if importlib.util.find_spec(mod) else mod
     src = f"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec({mod!r}) else 1)"
     try: r = subprocess.run([exe, '-c', src], capture_output=True, timeout=20, env=clean_env())
-    except (OSError, subprocess.SubprocessError): return None   # cannot tell, so do not say
+    except (OSError, subprocess.SubprocessError): return None
     return None if r.returncode == 0 else mod
 
 # %% ../nbs/03_spec.ipynb #1f437f27

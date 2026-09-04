@@ -68,9 +68,6 @@ def venv_env(python=None, env=None):
     if not python: return env
     bindir = str(Path(python).parent)
     env['VIRTUAL_ENV'] = str(Path(bindir).parent)
-    # Not `UV_PROJECT_ENVIRONMENT`. It is read wherever the process ends up rather than where it
-    # started, so a `uv sync` run in another checkout syncs that project's lock into this venv and
-    # prunes everything the lock does not name. uv finds the right environment from the directory.
     env.pop('UV_PROJECT_ENVIRONMENT', None)
     env['PATH'] = bindir + os.pathsep + env.get('PATH', '')
     env.pop('PYTHONHOME', None)

@@ -82,7 +82,7 @@ class RuntimeBroker:
                     candidate=self._candidate(), limit=self.max_kernels)
                 evicted = self._candidate()
                 vpool, vkey, _ = row
-                await vpool.close(vkey)   # `close` never takes this lock, so holding it is safe
+                await vpool.close(vkey)
             self._reserved.add(token)
         return evicted
     async def release(self, pool, key):
@@ -117,15 +117,12 @@ class KernelPool:
         if python is not False: self.default_python = python
         return {'kernel': self.default_kernel, 'python': self.default_python}
     def _class_for(self, kw):
-        """What runs this language: a Jupyter kernel where one is installed, else the host's own runner.
-
-        The gateway transport carries Python. A language the host runs itself has no wire protocol to
-        put through it, so it stays in this process whichever transport the workspace picked."""
+        "Select the Jupyter kernel or host runner for a language."
         lang = kw.get('lang') or 'python'
         if lang == 'python': return GatewayKernel if self.transport == 'gateway' else Kernel
         if kernelspec_for(lang, self.known_kernels): return Kernel
         if self.runner_for and (r := self.runner_for(lang)) is not None: return r
-        return Kernel                            # `installed_spec` raises, naming the install
+        return Kernel
     async def get(self, key, **kw):
         "The kernel for `key`, starting it once even when several browser panels ask together."
         self._sweeping()
@@ -139,11 +136,10 @@ class KernelPool:
             if cls is GatewayKernel:
                 if self.gateway is None: self.gateway = GatewayService().start()
                 args['gateway'] = self.gateway
-                args.pop('lang', None)          # the gateway carries Python, and takes no language
-            if issubclass(cls, Kernel):   # only kunda's own kernel resolves a spec
+                args.pop('lang', None)
+            if issubclass(cls, Kernel):
                 args['known'] = self.known_kernels
                 args['install'] = self.install_hints.get(args.get('lang') or 'python', '')
-            # a host's own runner is keyed, because it has no connection file to be found by
             if getattr(cls, 'wants_key', False): args['key'] = key
             k = self.kernels[key] = cls(port=self.port, **args)
             k.evicted = evicted

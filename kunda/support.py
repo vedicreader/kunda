@@ -99,8 +99,6 @@ def _last_line(text):
 # %% ../nbs/01_support.ipynb #d2641692
 def _probe(python, module, paths=()):
     "Whether `module` imports in `python`, with its version or the failure."
-    # The same question the bootstrap asks, and asked the same way: paths only where the version
-    # matches. Extending regardless is what made a 3.13 kernel fail on the bundle's 3.12 bytecode.
     pre = (f'import sys\nif tuple(sys.version_info[:2]) == {HOST_PY!r}: '
            f'sys.path.extend({list(paths)!r})\n') if paths else ''
     p = _run([python, '-c', f'{pre}import {module}; print(getattr({module}, "__version__", "installed"))'], 15)
