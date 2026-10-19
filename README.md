@@ -20,17 +20,23 @@ environment = venv_env(selected, env={'PATH': '/usr/bin'})
 Path(selected).relative_to(root), [row['label'] for row in choices], environment['VIRTUAL_ENV']
 ```
 
+    (Path('.venv/bin/python'),
+     ['this one', 'tmps35syx1f/.venv', 'python3 on PATH', 'python on PATH'],
+     '/private/var/folders/kg/9vdw4mdd1fs58svgh4k1qhr09x7dqh/T/tmps35syx1f/.venv')
+
 ## Run one kernel
 
 Execution errors are returned in [`ExecOutcome`](https://vedicreader.github.io/kunda/spec.html#execoutcome) and leave the kernel available.
 
 ``` python
-kernel = Kernel(cwd=root, python=sys.executable, inspect=True)
+kernel = Kernel(cwd=root, inspect=True)
 await kernel.start()
 outcome = await kernel.execute('value = 21 * 2; value')
 completion = await kernel.complete('val', 3)
 outcome.ok, outcome.text, completion['matches'][:3]
 ```
+
+    (True, '42', ['value'])
 
 ## Keep several kernels alive
 
@@ -46,6 +52,8 @@ pool = KernelPool(broker=broker, idle=0,
 broker.status(), pool._class_for({'lang': 'rust'}).__name__
 ```
 
+    ({'live': 0, 'limit': 12, 'runtimes': []}, 'RustRunner')
+
 ## Kernel support
 
 Support probes do not install packages. Installation uses the host’s installed package versions.
@@ -55,6 +63,8 @@ support = kernel_support(python)
 {k: v['available'] for k, v in support.items()}, installable(python)
 ```
 
+    ({'ipykernel': False, 'ipymini': False}, True)
+
 ## Inspect live variables
 
 With `inspect=True`, Kunda starts Dhrishti inside the kernel and reads its registry.
@@ -63,3 +73,5 @@ With `inspect=True`, Kunda starts Dhrishti inside the kernel and reads its regis
 await kernel.execute('visible_value = 42')
 'name' in (await kernel.names()), 'visible_value' in (await kernel.names())
 ```
+
+    (False, True)

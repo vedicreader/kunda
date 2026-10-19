@@ -350,25 +350,24 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "conkernelclient", marker = "extra == 'dev'", specifier = ">=0.0.16" },
     { name = "fastcore", specifier = ">=2.1.4" },
+    { name = "fossick", marker = "extra == 'dev'", specifier = ">=0.0.10" },
     { name = "ipython", specifier = ">=9.15.0" },
+    { name = "koshas", marker = "extra == 'dev'", specifier = ">=0.0.29" },
+    { name = "nbdev", marker = "extra == 'dev'", specifier = ">=3.3.21" },
+    { name = "notebook", marker = "extra == 'dev'", specifier = ">=7.6.0" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "pandas", specifier = ">=3.0.3" },
     { name = "python-fasthtml", specifier = ">=0.14.9" },
+    { name = "rishi", marker = "extra == 'dev'", specifier = ">=0.0.2" },
     { name = "safepyrun", specifier = ">=0.2.5" },
+    { name = "slopometer", marker = "extra == 'dev'", specifier = ">=0.0.1" },
 ]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "conkernelclient", specifier = ">=0.0.16" },
-    { name = "dhrishti", editable = "../dhrishti" },
-    { name = "fossick", specifier = ">=0.0.10" },
-    { name = "koshas", specifier = ">=0.0.29" },
-    { name = "nbdev", specifier = ">=3.3.0" },
-    { name = "notebook", specifier = ">=7.6.0" },
-    { name = "rishi", specifier = ">=0.0.2" },
-    { name = "slopometer", specifier = ">=0.0.1" },
-]
+dev = [{ name = "dhrishti", extras = ["dev"], editable = "../dhrishti" }]
 
 [[package]]
 name = "execnb"
@@ -406,11 +405,11 @@ wheels = [
 
 [[package]]
 name = "fastcore"
-version = "2.2.21"
+version = "2.2.33"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fc/25/22ff364f35b9978d05e9aca76101564300cc84da9b8fd0b27aff5aaaa8c4/fastcore-2.2.21.tar.gz", hash = "sha256:5687cc537a7aba8b88e43264e666ad8cc3f8e376d1b9c27f4d6ba6a4e098ac0a", size = 145238, upload-time = "2026-09-03T01:18:23.888Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/f4/a03f290cb0d1aedcf837c51b2be193a28dcc437697f5a57441f16d2c6a27/fastcore-2.2.33.tar.gz", hash = "sha256:919cc6d182e633a206238bfaacb39f37b7da985974568121347eedf0bec602c0", size = 145347, upload-time = "2026-10-05T06:56:55.208Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/f9/40c29b21fa8d72c010f06ef774e3e98362597fd183b30dd2362dd07ed05a/fastcore-2.2.21-py3-none-any.whl", hash = "sha256:672f4d71988a330d0e1b2f034f9dcc171e1ab7f56b5c88a1ee2bd941168f3cca", size = 151871, upload-time = "2026-09-03T01:18:22.22Z" },
+    { url = "https://files.pythonhosted.org/packages/93/77/687142707e4ff6b11c63f10dba0562e1be08eb214eaca9b46eab2f77a1fe/fastcore-2.2.33-py3-none-any.whl", hash = "sha256:2c29d35263d88d21d6c3c5ddef92fe3547161e4af0d3efcd324a6277de1a4fba", size = 152034, upload-time = "2026-10-05T06:56:53.423Z" },
 ]
 
 [[package]]
@@ -1003,11 +1002,16 @@ dependencies = [
     { name = "jupywire" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "nbdev" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "kunda", extra = ["dev"] },
 ]
 
 [package.metadata]
@@ -1020,14 +1024,14 @@ requires-dist = [
     { name = "jupygate", specifier = ">=0.0.1" },
     { name = "jupyter-client", specifier = ">=8.6" },
     { name = "jupywire", specifier = ">=0.1.1" },
+    { name = "nbdev", marker = "extra == 'dev'", specifier = ">=3.3.21" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },
 ]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "nbdev", specifier = ">=2.4.6" },
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", specifier = ">=1.0.0" },
-]
+dev = [{ name = "kunda", extras = ["dev"], editable = "." }]
 
 [[package]]
 name = "matplotlib"
@@ -1108,7 +1112,7 @@ wheels = [
 
 [[package]]
 name = "nbdev"
-version = "3.3.15"
+version = "3.3.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asttokens" },
@@ -1122,9 +1126,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/52/2d/36f3ae678d6bbfa3a37a35d412c336685a8fa7b03dbec18919ff7e60f193/nbdev-3.3.15.tar.gz", hash = "sha256:dedb063314cc83360238ca10af48b5daca52f3e2b01d86ad3c97bea364ed19b9", size = 87694, upload-time = "2026-09-02T02:44:11.469Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3c/fa/d80fb6b061023677bb88a8d59ac1ebefb74ad9add37d7c1211a01d56dbba/nbdev-3.3.25.tar.gz", hash = "sha256:cd48c235d18e5d53128f82c676cdb9a3f66f084ef05e48e8d4b9f56b3832d80d", size = 91478, upload-time = "2026-10-05T08:31:15.544Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/f9/42fe52f1f3b4ef4bc0a62e90bc28bdfd08479e2a39551fac77c4e148f439/nbdev-3.3.15-py3-none-any.whl", hash = "sha256:8d9f4af0f09ef1ff4a6a528a7ca918b3fd44225692ce5c4cbc48fb80acf81208", size = 92580, upload-time = "2026-09-02T02:44:09.78Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/ce/d0cfdd1bc8338285ae26db62771450b4c2b05f5befe81819f77789d8dc06/nbdev-3.3.25-py3-none-any.whl", hash = "sha256:9912cba878b0919aa40b0fd8e4f1ddcfabf186ea877b52f77b6dd75677312288", size = 95596, upload-time = "2026-10-05T08:31:13.906Z" },
 ]
 
 [[package]]

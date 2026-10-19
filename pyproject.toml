@@ -18,6 +18,9 @@ dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6', 'ipykernel>=6.29', 'i
                 'dhrishti>=0.1.4', 'jupygate>=0.0.1', 'jupyasyncclient>=0.2.1,!=0.2.8',
                 'jupywire>=0.1.1']
 
+[project.optional-dependencies]
+dev = ['pytest>=8.0.0', 'pytest-asyncio>=1.0.0', 'nbdev>=3.3.21']
+
 [project.urls]
 Repository = "https://github.com/vedicreader/kunda"
 Documentation = "https://vedicreader.github.io/kunda"
@@ -27,6 +30,7 @@ kunda = "kunda._modidx:d"
 
 [tool.uv.sources]
 dhrishti = { path = "../dhrishti", editable = true }
+kunda = { workspace = true }
 
 [tool.setuptools.dynamic]
 version = {attr = "kunda.__version__"}
@@ -43,4 +47,4 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [dependency-groups]
-dev = ['pytest>=8.0.0', 'pytest-asyncio>=1.0.0', 'nbdev>=2.4.6']
+dev = ["kunda[dev]"]
