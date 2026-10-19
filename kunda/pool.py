@@ -2,7 +2,7 @@
 
 # %% ../nbs/05_pool.ipynb #ca6dc493
 from __future__ import annotations
-import asyncio, os, time
+import asyncio, os, threading, time
 from pathlib import Path
 from fastcore.all import L, first, ifnone
 from .kernel import GatewayKernel, GatewayService, Kernel
@@ -30,7 +30,7 @@ class RuntimeBroker:
     def __init__(self, max_kernels=None, auto_manage=None):
         self.max_kernels = int(max_kernels or app_env('MAX_KERNELS', 12))
         self.auto_manage = bool(ifnone(auto_manage, app_env('KERNEL_AUTO', '').lower() in ('1', 'true', 'yes')))
-        self.pools, self._lock, self._reserved = [], asyncio.Lock(), set()
+        self.pools, self._lock, self._reserved, self._evicting = [], threading.Lock(), set(), set()
     def register(self, pool):
         if pool not in self.pools: self.pools.append(pool)
         pool.broker = self
@@ -44,8 +44,11 @@ class RuntimeBroker:
                      'kind': kernel.kernel_kind, 'cwd': str(kernel.cwd or '')} for _, key, kernel in self.live]}
     def stalest(self):
         "The idle kernel that has waited longest, as `(pool, key, kernel)`. None while all are busy."
-        idle = [row for row in self.live if not row[2].busy]
+        idle = [row for row in self.live if not row[2].busy and (id(row[0]), row[1]) not in self._evicting]
         return max(idle, key=lambda row: row[2].idle_for) if idle else None
+    def _used(self):
+        "Slots taken: live kernels not being evicted, plus start reservations."
+        return sum((id(pool), key) not in self._evicting for pool, key, _ in self.live) + len(self._reserved)
     def _candidate(self):
         "What the limit dialog needs to name the kernel it is offering to close."
         if (row := self.stalest()) is None: return None
@@ -53,10 +56,11 @@ class RuntimeBroker:
         return {'key': str(key), 'name': Path(str(getattr(k, 'cwd', '') or key)).name, 'cwd': str(getattr(k, 'cwd', '') or ''),
                 'pid': getattr(k, 'pid', None), 'idle_for': int(k.idle_for)}
     async def admit(self, pool, key):
-        token, evicted = (id(pool), key), None
-        async with self._lock:
+        token, evicted, row = (id(pool), key), None, None
+        for p in self.pools: p._strand()
+        with self._lock:
             if token in self._reserved or key in pool._starting: return
-            if len(self.live) + len(self._reserved) >= self.max_kernels:
+            if self._used() >= self.max_kernels:
                 row = self.stalest()
                 if row is None: raise KernelLimit(f'kernel limit reached ({self.max_kernels}) and every runtime is busy; stop one '
                     f'or set {env_name("MAX_KERNELS")} to a larger value', limit=self.max_kernels)
@@ -64,12 +68,20 @@ class RuntimeBroker:
                     f'or set {env_name("MAX_KERNELS")} to a larger value',
                     candidate=self._candidate(), limit=self.max_kernels)
                 evicted = self._candidate()
-                vpool, vkey, _ = row
-                await vpool.close(vkey)
+                self._evicting.add((id(row[0]), row[1]))
             self._reserved.add(token)
+        if row is not None:
+            vpool, vkey, _ = row
+            try: await vpool.close(vkey)
+            except BaseException:
+                with self._lock: self._reserved.discard(token)
+                raise
+            finally:
+                with self._lock: self._evicting.discard((id(vpool), vkey))
         return evicted
-    async def release(self, pool, key):
-        async with self._lock: self._reserved.discard((id(pool), key))
+    def _release(self, pool, key):
+        with self._lock: self._reserved.discard((id(pool), key))
+    async def release(self, pool, key): self._release(pool, key)
 
 # %% ../nbs/05_pool.ipynb #ece5f6cf
 class KernelPool:
@@ -99,9 +111,17 @@ class KernelPool:
         if kernelspec_for(lang, self.known_kernels): return Kernel
         if self.runner_for and (r := self.runner_for(lang)) is not None: return r
         return Kernel
+    def _strand(self):
+        "Drop each start whose loop has stopped, with its orphan kernel and broker reservation."
+        for key, task in list(self._starting.items()):
+            if task.done() or task.get_loop().is_running(): continue
+            self._starting.pop(key, None)
+            self.kernels.pop(key, None)
+            if self.broker is not None: self.broker._release(self, key)
     async def get(self, key, **kw):
         "The kernel for `key`, starting it once even when several browser panels ask together."
         self._sweeping()
+        self._strand()
         if (task := self._starting.get(key)) is not None: return await asyncio.shield(task)
         if (k := self.kernels.get(key)) is not None and k.alive: return k.touch()
         evicted = await self.broker.admit(self, key) if self.broker is not None else None
@@ -125,13 +145,15 @@ class KernelPool:
                 if self.kernels.get(key) is k: self.kernels.pop(key, None)
                 raise
         task = self._starting.get(key)
-        if task is None: task = self._starting[key] = asyncio.create_task(start_one())
-        try:
-            return await asyncio.shield(task)
-        finally:
-            if task.done() and self._starting.get(key) is task:
-                self._starting.pop(key, None)
-                if self.broker is not None: await self.broker.release(self, key)
+        if task is None:
+            task = self._starting[key] = asyncio.create_task(start_one())
+            task.add_done_callback(lambda t: self._settled(key, t))
+        return await asyncio.shield(task)
+    def _settled(self, key, task):
+        "A start ended, however it ended and whoever still waits on it: give back its place and its slot."
+        if self._starting.get(key) is not task: return
+        self._starting.pop(key, None)
+        if self.broker is not None: self.broker._release(self, key)
     async def reap(self):
         "Close what nobody has touched for `idle` seconds. A running cell is never taken."
         if self.idle <= 0: return []
@@ -140,8 +162,8 @@ class KernelPool:
         for k in stale: await self.close(k)
         return stale
     def _sweeping(self):
-        "Start the idle sweep on first use: `get` is the only thing that ever adds a kernel."
-        if self.idle > 0 and (self._sweep is None or self._sweep.done()):
+        "Start the idle sweep on first use, and again once its loop has stopped: `get` is the only thing that ever adds a kernel."
+        if self.idle > 0 and (self._sweep is None or self._sweep.done() or not self._sweep.get_loop().is_running()):
             self._sweep = asyncio.create_task(self._sweep_loop())
     async def _sweep_loop(self):
         while True:
