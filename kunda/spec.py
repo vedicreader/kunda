@@ -11,8 +11,9 @@ from .support import HOST_PY, clean_env, support_paths
 from .pythons import app_name
 
 # %% auto #0
-__all__ = ['BOOTSTRAP', 'run_file_src', 'bootstrap_src', 'output_text', 'ExecOutcome', 'KernelStartError',
-           'missing_kernel_module', 'installed_kernels', 'kernelspec_for', 'installed_spec']
+__all__ = ['BOOTSTRAP', 'run_file_src', 'bootstrap_src', 'output_text', 'ExecOutcome', 'runtime_python', 'KernelStartError',
+           'missing_kernel_module', 'frozen_pythonpath', 'kernel_spec', 'installed_kernels', 'kernelspec_for',
+           'installed_spec']
 
 # %% ../nbs/03_spec.ipynb #dfe72612
 def run_file_src(path, src=None, argv=(), cwd=None):
@@ -88,13 +89,14 @@ class ExecOutcome:
     def text(self): return output_text(self.outputs)
 
 # %% ../nbs/03_spec.ipynb #6d1e156b
-def _runtime_python(python=None):
+def runtime_python(python=None):
     "A selected interpreter, or py2app's bundled generic Python helper."
     if python: return str(python)
     if getattr(sys, 'frozen', False):
         helper = Path(sys.executable).with_name('python')
         if helper.exists(): return str(helper)
     return sys.executable
+_runtime_python = runtime_python
 
 # %% ../nbs/03_spec.ipynb #0dd3f9ec
 class KernelStartError(RuntimeError):
@@ -104,7 +106,7 @@ class KernelStartError(RuntimeError):
 def missing_kernel_module(python=None, kernel='ipykernel'):
     "The kernel package `python` cannot import, or None."
     mod = 'ipymini' if kernel == 'ipymini' else 'ipykernel_launcher'
-    exe = _runtime_python(python)
+    exe = runtime_python(python)
     if exe == sys.executable: return None if importlib.util.find_spec(mod) else mod
     src = f"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec({mod!r}) else 1)"
     try: r = subprocess.run([exe, '-c', src], capture_output=True, timeout=20, env=clean_env())
@@ -112,30 +114,32 @@ def missing_kernel_module(python=None, kernel='ipykernel'):
     return None if r.returncode == 0 else mod
 
 # %% ../nbs/03_spec.ipynb #1f437f27
-def _frozen_pythonpath():
+def frozen_pythonpath():
     "Module and extension paths a py2app helper process must inherit."
     if not getattr(sys, 'frozen', False): return None
     resources = Path(sys.executable).resolve().parent.parent/'Resources'
     version = f'python{sys.version_info.major}.{sys.version_info.minor}'
     bundled = [resources/'lib'/version, resources/'lib'/version/'lib-dynload', resources/'lib'/f'python{sys.version_info.major}{sys.version_info.minor}.zip']
     return os.pathsep.join(dict.fromkeys(str(p) for p in [*bundled, *sys.path] if p))
+_frozen_pythonpath = frozen_pythonpath
 
 # %% ../nbs/03_spec.ipynb #6792a4d7
 def _kernel_env(python=None):
     "Environment for a kernel child, detached from py2app's interpreter redirect."
     env = clean_env()
-    if python is None and (path := _frozen_pythonpath()): env['PYTHONPATH'] = path
+    if python is None and (path := frozen_pythonpath()): env['PYTHONPATH'] = path
     return env
 
 # %% ../nbs/03_spec.ipynb #fc6f8545
-def _spec(python=None, name='python3', kernel='ipykernel', lang='python', known=None, install=''):
+def kernel_spec(python=None, name='python3', kernel='ipykernel', lang='python', known=None, install=''):
     "Kernelspec pinned to a specific interpreter for Python; other languages return their installed spec unchanged."
     if lang and lang != 'python': return installed_spec(lang, known, install)
-    runtime = _runtime_python(python)
+    runtime = runtime_python(python)
     if kernel == 'ipymini': argv = [runtime, '-Xfrozen_modules=off', '-m', 'ipymini', '-f', '{connection_file}']
     else: argv = [runtime, '-m', 'ipykernel_launcher', '-f', '{connection_file}']
     metadata = {'supported_encryption': 'curve'} if kernel == 'ipykernel' else {}
     return KernelSpec(argv=argv, display_name=name, language='python', metadata=metadata)
+_spec = kernel_spec
 
 # %% ../nbs/03_spec.ipynb #89a5656d
 def installed_kernels():

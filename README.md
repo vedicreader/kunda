@@ -75,3 +75,7 @@ await kernel.execute('visible_value = 42')
 ```
 
     (False, True)
+
+## Build a host on Kunda
+
+A host that starts its own helper processes asks Kunda the same questions a kernel does. [`runtime_python`](https://vedicreader.github.io/kunda/spec.html#runtime_python) names the interpreter to spawn, which inside a frozen app is the bundled helper, and [`frozen_pythonpath`](https://vedicreader.github.io/kunda/spec.html#frozen_pythonpath) gives the module paths that helper needs. [`kernel_spec`](https://vedicreader.github.io/kunda/spec.html#kernel_spec) builds the kernelspec from the host’s own table of languages. [`venv_roots`](https://vedicreader.github.io/kunda/pythons.html#venv_roots) lists the folders searched for a project’s environment. A host’s runner subclasses [`InspectorClient`](https://vedicreader.github.io/kunda/kernel.html#inspectorclient) for the inspector calls and idle clock, and [`give_up_after`](https://vedicreader.github.io/kunda/kernel.html#give_up_after) bounds any close that might not answer. Each of these had a leading underscore before 0.0.4, and the old names still work.

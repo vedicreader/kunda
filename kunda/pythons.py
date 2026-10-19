@@ -9,7 +9,7 @@ from fastcore.all import L, Path, first
 # %% auto #0
 __all__ = ['APP', 'VENV_DIRS', 'VENV_BINS', 'VENV_PYTHONS', 'BUNDLE_ONLY', 'use_app', 'app_name', 'env_name', 'app_env',
            'strip_bundle', 'clean_env', 'venv_env', 'nearest_marked', 'project_python', 'nearest_python', 'python_for',
-           'find_pythons']
+           'venv_roots', 'find_pythons']
 
 # %% ../nbs/00_pythons.ipynb #eeafcd60
 #: The name kunda wears, and the prefix on every environment variable it reads. `use_app` sets both.
@@ -99,12 +99,13 @@ def python_for(cwd=None, stop=None, roots=(), default=None):
     return default or project_python(roots)
 
 # %% ../nbs/00_pythons.ipynb #99285c53
-def _venv_roots(roots):
+def venv_roots(roots):
     "Each folder and the checkouts directly inside it: one folder of repos holds a venv each."
     for r in L(roots):
         yield Path(r)
         try: yield from sorted(d for d in Path(r).iterdir() if d.is_dir() and not d.name.startswith('.'))
         except OSError: pass
+_venv_roots = venv_roots
 
 def find_pythons(roots=(), current=None, this_label='this one'):
     "Kernel launch options: this interpreter (`current`) and all reachable venvs.`current` is resolved by `python_for` and may be deeper than standard search.Listing enables picker selection."
@@ -118,7 +119,7 @@ def find_pythons(roots=(), current=None, this_label='this one'):
     if current:
         d = Path(current).parents
         add(current, f'{d[2].name}/{d[1].name}' if len(d) > 2 else str(current))
-    for r in _venv_roots(roots):
+    for r in venv_roots(roots):
         for d, p in _venv_pythons(r): add(p, f'{Path(r).name}/{d}')
     for n in ('python3', 'python'):
         if (w := which(n)): add(w, f'{n} on PATH')

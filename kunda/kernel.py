@@ -10,20 +10,21 @@ from jupyter_client.manager import AsyncKernelManager
 from dhrishti.registry import active, reg_dir
 from .pythons import app_name
 from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
-from .spec import ExecOutcome, KernelStartError, _kernel_env, _runtime_python, _spec, bootstrap_src, kernelspec_for, missing_kernel_module, output_text
+from .spec import ExecOutcome, KernelStartError, _kernel_env, runtime_python, kernel_spec, bootstrap_src, kernelspec_for, missing_kernel_module, output_text
 
 # %% auto #0
-__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'GATEWAY_DEPS', 'ipymini_available', 'Kernel', 'check_gateway_deps', 'GatewayService',
-           'GatewayKernel']
+__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'GATEWAY_DEPS', 'give_up_after', 'ipymini_available', 'InspectorClient', 'Kernel',
+           'check_gateway_deps', 'GatewayService', 'GatewayKernel']
 
 # %% ../nbs/04_kernel.ipynb #cf6bf71a
 KERNELS, SHUTDOWN_WAIT = ('ipykernel', 'ipymini'), 5.0
 
 # %% ../nbs/04_kernel.ipynb #12f0f0f2
-async def _give_up_after(coro, timeout=SHUTDOWN_WAIT):
+async def give_up_after(coro, timeout=SHUTDOWN_WAIT):
     "Await `coro`, then stop waiting rather than hold the caller open. Failing to close is not news."
     try: await asyncio.wait_for(coro, timeout=timeout)
     except Exception: pass
+_give_up_after = give_up_after
 
 # %% ../nbs/04_kernel.ipynb #5fa2a966
 def ipymini_available():
@@ -31,7 +32,7 @@ def ipymini_available():
     return importlib.util.find_spec('ipymini') is not None
 
 # %% ../nbs/04_kernel.ipynb #973d8475
-class _Inspector:
+class InspectorClient:
     "The inspector-client half shared by `Kernel` and `GatewayKernel`."
     last_used = 0.
     def touch(self):
@@ -117,9 +118,10 @@ class _Inspector:
             await self.restart()
             return {'ok': True, 'forced': True, 'note': 'kernel restarted after interrupt was ignored'}
         except asyncio.CancelledError: return {'ok': True, 'forced': False, 'note': 'cell stopped'}
+_Inspector = InspectorClient
 
 # %% ../nbs/04_kernel.ipynb #5d41a15e
-class Kernel(_Inspector):
+class Kernel(InspectorClient):
     "One ipykernel process: execute/complete over jupyter_client, live variables over its in-kernel."
     def __init__(self,
         cwd=None,
@@ -179,7 +181,7 @@ class Kernel(_Inspector):
         elif self.kernel == 'ipykernel':
             manager_kw['transport_encryption'] = 'required'
         self.km = AsyncKernelManager(**manager_kw)
-        self.km._kernel_spec = _spec(self.python, ifnone(self.name, 'python3'), self.kernel, self.lang, self.known, self.install)
+        self.km._kernel_spec = kernel_spec(self.python, ifnone(self.name, 'python3'), self.kernel, self.lang, self.known, self.install)
         cwd = work_dir(self.cwd)
         try:
             await self.km.start_kernel(cwd=cwd, env=_kernel_env(self.python))
@@ -193,7 +195,7 @@ class Kernel(_Inspector):
             await self.shutdown()
             if isinstance(e, Exception) and (mod := missing_kernel_module(self.python, self.kernel)):
                 raise KernelStartError(
-                    f'{_runtime_python(self.python)} cannot import {mod}, so it can run no kernel. '
+                    f'{runtime_python(self.python)} cannot import {mod}, so it can run no kernel. '
                     f'Run `uv sync` in that project, or pick another interpreter in the kernel picker.') from e
             raise
         if self.inspect: await self.bootstrap()
@@ -459,7 +461,7 @@ class GatewayService:
         if self.server is not None: self.server.should_exit = True
 
 # %% ../nbs/04_kernel.ipynb #0f2d1ab7
-class GatewayKernel(_Inspector):
+class GatewayKernel(InspectorClient):
     "The `Kernel` interface over jupygate + jupyasyncclient, so a kernel outlives a client reconnect."
     lang = 'python'
     def __init__(self, gateway, cwd=None, name=None, python=None, inspect=True,
@@ -482,7 +484,7 @@ class GatewayKernel(_Inspector):
         check_gateway_deps()
         from jupyasyncclient import JupyAsyncKernelClient
         self.gateway.start()
-        argv = _spec(self.python, ifnone(self.name, 'python3'), self.kernel).argv
+        argv = kernel_spec(self.python, ifnone(self.name, 'python3'), self.kernel).argv
         self.kc = await JupyAsyncKernelClient.connect(self.gateway.url, token=self.gateway.token,
             timeout=timeout, argv=argv,
             env=_kernel_env(self.python),
@@ -539,5 +541,5 @@ class GatewayKernel(_Inspector):
         await self.kc.shutdown_kernel()
         await self.kc.aclose()
     async def shutdown(self):
-        if self.kc: await _give_up_after(self._release())
+        if self.kc: await give_up_after(self._release())
         self.kc, self.base, self._alive = None, None, False
