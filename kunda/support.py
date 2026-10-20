@@ -61,7 +61,7 @@ class _Failed:
 def _run(args, timeout=180):
     "Run a command and return its result; missing interpreter and timeout are returned as answers, not raised."
     try:
-        return subprocess.run([str(x) for x in args], env=clean_env(), text=True,
+        return subprocess.run([str(x) for x in args], env=clean_env(), text=True, stdin=subprocess.DEVNULL,
             encoding='utf-8', errors='replace', capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired: return _Failed(f'timed out after {timeout}s')
     except OSError as e: return _Failed(str(e))

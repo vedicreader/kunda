@@ -109,7 +109,7 @@ def missing_kernel_module(python=None, kernel='ipykernel'):
     exe = runtime_python(python)
     if exe == sys.executable: return None if importlib.util.find_spec(mod) else mod
     src = f"import importlib.util, sys; sys.exit(0 if importlib.util.find_spec({mod!r}) else 1)"
-    try: r = subprocess.run([exe, '-c', src], capture_output=True, timeout=20, env=clean_env())
+    try: r = subprocess.run([exe, '-c', src], stdin=subprocess.DEVNULL, capture_output=True, timeout=20, env=clean_env())
     except (OSError, subprocess.SubprocessError): return None
     return None if r.returncode == 0 else mod
 
