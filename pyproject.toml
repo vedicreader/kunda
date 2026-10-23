@@ -15,11 +15,11 @@ classifiers = ["Natural Language :: English", "Intended Audience :: Developers",
                "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3",
                "Programming Language :: Python :: 3 :: Only"]
 dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6', 'ipykernel>=6.29', 'ipymini>=0.1.17',
-                'dhrishti>=0.1.4', 'jupygate>=0.0.1', 'jupyasyncclient>=0.2.1,!=0.2.8',
+                'dhrishti>=0.1.4', 'jupygate>=0.0.1', 'jupyasyncclient>=0.2.12',
                 'jupywire>=0.1.1']
 
 [project.optional-dependencies]
-dev = ['pytest>=8.0.0', 'pytest-asyncio>=1.0.0', 'nbdev>=3.3.21']
+dev = ['pytest>=8.0.0', 'pytest-asyncio>=1.0.0', 'nbdev>=3.3.21', 'ipywidgets>=8']
 
 [project.urls]
 Repository = "https://github.com/vedicreader/kunda"

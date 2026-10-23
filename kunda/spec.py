@@ -85,6 +85,7 @@ class ExecOutcome:
     execution_count: int | None = None
     outputs: list = field(default_factory=list)
     error: str | None = None
+    lost: bool = False     # the reply never came back, though the kernel had finished
     @property
     def text(self): return output_text(self.outputs)
 

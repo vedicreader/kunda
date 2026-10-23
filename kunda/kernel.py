@@ -2,7 +2,8 @@
 
 # %% ../nbs/04_kernel.ipynb #f9c0be05
 from __future__ import annotations
-import asyncio, importlib.util, json, os, queue, shutil, sys, tempfile, time, uuid, warnings
+import asyncio, importlib.util, json, logging, os, queue, shutil, sys, tempfile, time, uuid, warnings
+from inspect import isawaitable
 from pathlib import Path
 from fastcore.all import L, first, ifnone, store_attr
 from fastcore.ansi import strip_ansi
@@ -13,8 +14,9 @@ from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
 from .spec import ExecOutcome, KernelStartError, _kernel_env, runtime_python, kernel_spec, bootstrap_src, kernelspec_for, missing_kernel_module, output_text
 
 # %% auto #0
-__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'GATEWAY_DEPS', 'give_up_after', 'ipymini_available', 'InspectorClient', 'Kernel',
-           'check_gateway_deps', 'GatewayService', 'GatewayKernel']
+__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'QUIET', 'PROBE_WAIT', 'SUBSCRIBER_QUEUE', 'COMM_MSGS', 'OUTPUT_MSGS', 'GATEWAY_DEPS',
+           'give_up_after', 'ipymini_available', 'CommsUnsupported', 'comm_content', 'Feed', 'InspectorClient',
+           'MessageRouter', 'Kernel', 'check_gateway_deps', 'GatewayService', 'GatewayKernel']
 
 # %% ../nbs/04_kernel.ipynb #cf6bf71a
 KERNELS, SHUTDOWN_WAIT = ('ipykernel', 'ipymini'), 5.0
@@ -31,6 +33,67 @@ def ipymini_available():
     "True when the ipymini package can be imported in this interpreter."
     return importlib.util.find_spec('ipymini') is not None
 
+# %% ../nbs/04_kernel.ipynb #5131a6bf
+_log = logging.getLogger(__name__)
+#: How long a gateway run may hear nothing before kunda asks whether its reply was lost, and how long that question may wait.
+QUIET, PROBE_WAIT = 2.0, 30.0
+#: How many messages wait for slow subscribers before the oldest is dropped.
+SUBSCRIBER_QUEUE = 1000
+COMM_MSGS = ('comm_open', 'comm_msg', 'comm_close')
+OUTPUT_MSGS = ('stream', 'display_data', 'update_display_data', 'execute_result', 'error', 'clear_output')
+
+# %% ../nbs/04_kernel.ipynb #61294770
+class CommsUnsupported(RuntimeError):
+    "This kernel has no comm manager to relay widgets to: ipymini, and kernels for other languages."
+
+def comm_content(
+    comm_id,                # the comm both ends agreed on
+    data=None,              # JSON-able payload
+    msg_type='comm_msg',    # one of `COMM_MSGS`
+    target_name=None,       # the kernel-side target; only a `comm_open` names one
+):
+    "The content of one comm message to a kernel, checked before it is sent."
+    if msg_type not in COMM_MSGS: raise ValueError(f'{msg_type!r} is not a comm message; use one of {COMM_MSGS}')
+    c = {'comm_id': comm_id, 'data': data or {}}
+    if msg_type == 'comm_open':
+        if not target_name: raise ValueError('comm_open needs a target_name')
+        c['target_name'] = target_name
+    return c
+
+# %% ../nbs/04_kernel.ipynb #1cca38d0
+class Feed:
+    "Hand messages to subscribers from a bounded queue, so whatever produces them never waits on whoever reads them."
+    def __init__(self, maxsize=SUBSCRIBER_QUEUE):
+        self.fns, self.maxsize, self.dropped, self.q, self.task = [], maxsize, 0, None, None
+    def subscribe(self, fn):
+        "Call `fn` (plain or async) with every later message; returns `fn`."
+        if fn not in self.fns: self.fns.append(fn)
+        return fn
+    def unsubscribe(self, fn):
+        if fn in self.fns: self.fns.remove(fn)
+    def put(self, msg):
+        "Queue `msg` for delivery, dropping the oldest when full. Nothing is kept while nobody subscribes."
+        if not self.fns: return
+        if self.q is None: self.q = asyncio.Queue()
+        if self.q.qsize() >= self.maxsize:
+            self.q.get_nowait(); self.q.task_done(); self.dropped += 1
+        self.q.put_nowait(msg)
+        if self.task is None or self.task.done(): self.task = asyncio.get_running_loop().create_task(self._deliver())
+    async def _deliver(self):
+        while True:
+            msg = await self.q.get()
+            try:
+                for fn in list(self.fns):
+                    try:
+                        if isawaitable(r := fn(msg)): await r
+                    except Exception: _log.exception('kernel subscriber %r failed', fn)
+            finally: self.q.task_done()
+    async def flush(self, timeout=SHUTDOWN_WAIT):
+        "Deliver what is queued, then stop delivering until the next `put`."
+        if self.task is not None and not self.task.done(): await give_up_after(self.q.join(), timeout)
+        if self.task is not None: self.task.cancel()
+        self.task = None
+
 # %% ../nbs/04_kernel.ipynb #973d8475
 class InspectorClient:
     "The inspector-client half shared by `Kernel` and `GatewayKernel`."
@@ -39,6 +102,25 @@ class InspectorClient:
         "Stamp activity. The idle sweep measures from here, so anything that uses a kernel says so."
         self.last_used = time.time()
         return self
+    comms = False
+    @property
+    def feed(self):
+        "This kernel's subscribers, made on first use so a host's runner needs no `__init__` for them."
+        if (f := self.__dict__.get('_feed')) is None: f = self.__dict__['_feed'] = Feed()
+        return f
+    def subscribe(self, fn):
+        "Call `fn` with each comm message, comm-handler output and lifecycle event of this kernel; returns `fn`."
+        return self.feed.subscribe(fn)
+    def unsubscribe(self, fn): self.feed.unsubscribe(fn)
+    def emit(self, kind):
+        "Tell subscribers `{'type': kind}`: 'kernel_restart' or 'kernel_gone'."
+        self.feed.put({'type': kind})
+    def comm_send(self, comm_id, data, buffers=(), msg_type='comm_msg', target_name=None, metadata=None):
+        "Relay one comm message to the kernel on its shell channel."
+        raise CommsUnsupported(f'{type(self).__name__} has no comms to relay')
+    async def comm_info(self, target_name=None, timeout=10):
+        "The kernel's open comms, optionally only those for `target_name`."
+        raise CommsUnsupported(f'{type(self).__name__} has no comms to relay')
     @property
     def busy(self):
         "A cell is running on this kernel. The sweep never takes one of these."
@@ -120,8 +202,156 @@ class InspectorClient:
         except asyncio.CancelledError: return {'ok': True, 'forced': False, 'note': 'cell stopped'}
 _Inspector = InspectorClient
 
+# %% ../nbs/04_kernel.ipynb #f42a6b66
+class _Run:
+    "One execute in flight: what it has collected and what it still waits for."
+    def __init__(self, on_output=None, on_debug=None):
+        self.on_output, self.on_debug = on_output, on_debug
+        self.outs, self.displays, self.reply, self.error, self.probe, self.probe_ws, self.raised = [], {}, None, None, None, None, None
+        self.idle = self.lost = self.clear_next = False
+        self.done, self.last = asyncio.Event(), time.monotonic()
+    def heard(self):
+        "A message for this run arrived. The run is over once its reply and its idle status both have."
+        self.last = time.monotonic()
+        if self.idle and self.reply is not None: self.done.set()
+    def settle(self, error=None):
+        if self.error is None: self.error = error
+        self.done.set()
+    def outcome(self):
+        c = (self.reply or {}).get('content', {})
+        err = self.error
+        if err is None and c.get('status') == 'error': err = f"{c.get('ename')}: {c.get('evalue')}"
+        elif err is None and c.get('status') == 'abort': err = 'aborted'
+        if err is None and (e := first(self.outs, lambda o: o['output_type'] == 'error')): err = f"{e.get('ename')}: {e.get('evalue')}"
+        return ExecOutcome(ok=err is None, execution_count=c.get('execution_count'), outputs=self.outs, error=err, lost=self.lost)
+
+# %% ../nbs/04_kernel.ipynb #f77729a2
+class MessageRouter(InspectorClient):
+    "The one reader of a kernel's iopub and shell replies, sending each message to its run, its waiter or the subscribers."
+    def _init_router(self):
+        self._runs, self._waiters, self._output_comms = {}, {}, {}
+    def _route(self, msg):
+        "Deliver one inbound message without waiting, so no consumer can stall the reader."
+        try: self._dispatch(msg)
+        except Exception: _log.exception('kunda could not route a %s message', msg.get('msg_type'))
+    def _dispatch(self, msg):
+        t = msg.setdefault('msg_type', (msg.get('header') or {}).get('msg_type'))
+        c, parent = msg.get('content') or {}, (msg.get('parent_header') or {}).get('msg_id')
+        if (run := self._runs.get(parent)) is not None: run.last = time.monotonic()
+        if msg.get('channel') == 'shell':
+            if (fut := self._waiters.pop(parent, None)) is not None:
+                if not fut.done(): fut.set_result(msg)
+            elif run is not None and t == 'execute_reply': run.reply = msg; run.heard()
+            return
+        if t == 'debug_event': return self._debug_event(c, run or first(self._runs.values()))
+        if t == 'status':
+            if c.get('execution_state') == 'dead': self._settle_runs('kernel died')
+            elif c.get('execution_state') == 'idle' and run is not None: run.idle = True; run.heard()
+            return
+        if t in COMM_MSGS:
+            self._track_comm(t, c)
+            return self._publish(msg)
+        if t not in OUTPUT_MSGS: return
+        if (cid := self._capturing(parent)) is not None: self._publish(msg, output_comm_id=cid)
+        elif run is not None: self._fold(run, t, c)
+        elif (msg.get('parent_header') or {}).get('msg_type') != 'execute_request': self._publish(msg)   # a cell kunda stopped waiting for is not a callback
+    def _debug_event(self, c, run):
+        if c.get('event') == 'stopped': self._debug_thread = (c.get('body') or {}).get('threadId')
+        elif c.get('event') == 'continued': self._debug_thread = None
+        if run is not None and run.on_debug: run.on_debug(c)
+    def _publish(self, msg, **tags):
+        "Hand a whole message to the subscribers. Comm traffic is use, so the idle reaper hears of it."
+        if not self.comms: return
+        self.touch()
+        if not self.feed.fns: return
+        m = {k: msg.get(k) for k in ('header', 'parent_header', 'metadata', 'content', 'msg_type', 'channel')}
+        self.feed.put(m | {'buffers': [bytes(b) for b in msg.get('buffers') or ()]} | tags)
+    def _track_comm(self, t, c):
+        "Follow each Output widget's `msg_id`: while it names a request, that request's output belongs to the widget."
+        cid, d = c.get('comm_id'), c.get('data') or {}
+        if t == 'comm_open' and (d.get('state') or {}).get('_model_name') == 'OutputModel': self._output_comms[cid] = d['state'].get('msg_id', '')
+        elif t == 'comm_close': self._output_comms.pop(cid, None)
+        elif cid in self._output_comms and d.get('method') in ('update', 'echo_update') and 'msg_id' in (d.get('state') or {}):
+            self._output_comms[cid] = d['state']['msg_id']
+    def _capturing(self, parent): return first(cid for cid, mid in self._output_comms.items() if mid and mid == parent)
+    def _settle_runs(self, error):
+        for run in list(self._runs.values()): run.settle(error)
+    @staticmethod
+    def _as_output(msg_type, c):
+        "An iopub message as an nbformat output dict, or None if it carries no output."
+        if msg_type == 'stream': return {'output_type': 'stream', 'name': c.get('name', 'stdout'), 'text': c.get('text', '')}
+        if msg_type == 'error':
+            return {'output_type': 'error', 'ename': c.get('ename', ''), 'evalue': c.get('evalue', ''),
+                'traceback': list(c.get('traceback') or [])}
+        if msg_type in ('execute_result', 'display_data', 'update_display_data'):
+            o = {'output_type': 'execute_result' if msg_type == 'execute_result' else 'display_data',
+                'data': c.get('data') or {}, 'metadata': c.get('metadata') or {}}
+            if msg_type == 'execute_result': o['execution_count'] = c.get('execution_count')
+            return o
+        return None
+    def _fold(self, run, t, c):
+        "Add one output to its run, applying clear_output and display-id updates the way a notebook does."
+        if t == 'clear_output':
+            if c.get('wait'): run.clear_next = True
+            else: run.outs.clear(); run.displays.clear()
+            return
+        if not (o := self._as_output(t, c)): return
+        if run.clear_next: run.outs.clear(); run.displays.clear(); run.clear_next = False
+        outs, displays, display_id = run.outs, run.displays, (c.get('transient') or {}).get('display_id')
+        if t == 'update_display_data' and display_id in displays: outs[displays[display_id]] = o
+        elif (o['output_type'] == 'stream' and outs and outs[-1].get('output_type') == 'stream'
+            and outs[-1].get('name') == o['name']): outs[-1]['text'] += o['text']
+        else:
+            outs.append(o)
+            if display_id: displays[display_id] = len(outs) - 1
+        if run.on_output:
+            event = dict(o)
+            if display_id: event.update(_display_id=display_id, _update=(t == 'update_display_data'))
+            try: run.on_output(event)
+            except Exception as e: run.raised = e; run.settle()
+    async def execute(self, code, silent=False, store_history=True, on_output=None, timeout=None, on_debug=None):
+        "Run `code` and collect nbformat-shaped outputs, streaming each to `on_output`; `timeout` bounds the whole run."
+        if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
+        async with self._exec_lock:
+            if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
+            task, run, mid = asyncio.current_task(), _Run(on_output, on_debug), None
+            self._exec_task = task
+            self.touch()
+            try:
+                mid = self._send_execute(code, silent=silent, store_history=store_history)
+                self._runs[mid] = run
+                await self._wait(run, timeout)
+            finally:
+                self._runs.pop(mid, None)
+                if run.probe is not None: run.probe.cancel()
+                self.touch()
+                if self._exec_task is task: self._exec_task = None
+        if run.raised is not None: raise run.raised
+        return run.outcome()
+    async def _wait(self, run, timeout):
+        "Wait for the run to end, for its deadline, or for the kernel to go."
+        end = None if timeout is None else time.monotonic() + timeout
+        while not run.done.is_set():
+            try: await asyncio.wait_for(run.done.wait(), .25)
+            except asyncio.TimeoutError: pass
+            if run.done.is_set(): return
+            if not self.alive: return run.settle('kernel is not running')
+            if end is not None and time.monotonic() >= end: return run.settle(f'timed out after {timeout}s')
+            self._quiet(run)
+    def _quiet(self, run):
+        "Check on a run that has heard nothing for a while. Only a transport that can lose replies needs to."
+    def comm_send(self, comm_id, data, buffers=(), msg_type='comm_msg', target_name=None, metadata=None):
+        "Relay one comm message to the kernel on its shell channel without waiting; returns its msg_id."
+        if not self.comms: return super().comm_send(comm_id, data)
+        if not self.alive: raise RuntimeError('kernel is not running')
+        msg = self.kc.session.msg(msg_type, comm_content(comm_id, data, msg_type, target_name), metadata=metadata or {})
+        msg['buffers'] = list(buffers)
+        self._send_shell(msg)
+        self.touch()
+        return msg['header']['msg_id']
+
 # %% ../nbs/04_kernel.ipynb #5d41a15e
-class Kernel(InspectorClient):
+class Kernel(MessageRouter):
     "One ipykernel process: execute/complete over jupyter_client, live variables over its in-kernel."
     def __init__(self,
         cwd=None,
@@ -148,7 +378,8 @@ class Kernel(InspectorClient):
         self.last_api_error = ''
         self._exec_lock = asyncio.Lock()
         self._exec_task = None
-        self._shell_lock = asyncio.Lock()
+        self._readers = []
+        self._init_router()
         self._debug_lock = asyncio.Lock()
         self._debug_seq = 0
         self._debug_thread = None
@@ -158,6 +389,10 @@ class Kernel(InspectorClient):
     def alive(self):
         "True only once the process and its usable client are both ready."
         return self.km is not None and self.kc is not None and self.km.has_kernel
+    @property
+    def comms(self):
+        "ipykernel has a comm manager; ipymini and other languages' kernels have none kunda relays to."
+        return self.kernel == 'ipykernel' and self.lang == 'python'
     @property
     def pid(self):
         "OS pid of the kernel process, or None."
@@ -191,6 +426,7 @@ class Kernel(InspectorClient):
             self.kc = self.km.client(**client_kw)
             self.kc.start_channels()
             await self.kc.wait_for_ready(timeout=timeout)
+            self._start_router()
         except BaseException as e:
             await self.shutdown()
             if isinstance(e, Exception) and (mod := missing_kernel_module(self.python, self.kernel)):
@@ -200,6 +436,26 @@ class Kernel(InspectorClient):
             raise
         if self.inspect: await self.bootstrap()
         return self
+    def _start_router(self):
+        "One reader per channel, each feeding `_route`. `wait_for_ready` reads the same channels, so it runs before these do."
+        self._readers = [asyncio.ensure_future(self._read(self.kc.get_iopub_msg, 'iopub')),
+                         asyncio.ensure_future(self._read(self.kc.get_shell_msg, 'shell'))]
+    async def _stop_router(self):
+        for t in self._readers: t.cancel()
+        await asyncio.gather(*self._readers, return_exceptions=True)
+        self._readers = []
+    async def _read(self, get, channel):
+        while self.kc is not None:
+            try: msg = await get(timeout=1)
+            except (queue.Empty, asyncio.TimeoutError): continue
+            except Exception:
+                if not self.alive: return
+                await asyncio.sleep(.05)
+                continue
+            msg['channel'] = channel
+            self._route(msg)
+    def _send_execute(self, code, **kw): return self.kc.execute(code, allow_stdin=False, **kw)
+    def _send_shell(self, msg): self.kc.shell_channel.send(msg)
     async def _find_base(self):
         "The registry entry written by our own kernel process, matched on pid."
         for _ in range(40):
@@ -213,10 +469,19 @@ class Kernel(InspectorClient):
         "Restart the process; the namespace and the in-kernel inspector are both rebuilt."
         if not self.km: return
         self.base = self.boot_error = None
-        await self.km.restart_kernel(now=False)
-        await self.kc.wait_for_ready(timeout=60)
+        self._settle_runs('kernel restarted')
+        self._output_comms.clear()
+        await self._stop_router()
+        try:
+            await self.km.restart_kernel(now=False)
+            await self.kc.wait_for_ready(timeout=60)
+        finally: self._start_router()
+        self.emit('kernel_restart')
         if self.inspect: await self.bootstrap()
     async def shutdown(self):
+        had = self.kc is not None
+        self._settle_runs('kernel is not running')
+        await self._stop_router()
         if self.kc:
             try: self.kc.stop_channels()
             except Exception: pass
@@ -227,80 +492,21 @@ class Kernel(InspectorClient):
         if self._ipc_dir:
             shutil.rmtree(self._ipc_dir, ignore_errors=True)
             self._ipc_dir = None
-    async def execute(self, code, silent=False, store_history=True, on_output=None, timeout=None,
-        on_debug=None):
-        "Run `code` on the shell channel and collect nbformat-shaped outputs, streaming each to `on_output`."
-        if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
-        async with self._exec_lock, self._shell_lock:
-            if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
-            task = asyncio.current_task()
-            self._exec_task = task
-            self.touch()
-            try:
-                msg_id = self.kc.execute(code, silent=silent, store_history=store_history,
-                    allow_stdin=False)
-                outs = await self._collect(msg_id, on_output, timeout, on_debug)
-                reply = await self._reply(msg_id, timeout)
-            finally:
-                self.touch()
-                if self._exec_task is task: self._exec_task = None
-        c = reply.get('content', {}) if reply else {}
-        err = None
-        if c.get('status') == 'error': err = f"{c.get('ename')}: {c.get('evalue')}"
-        elif c.get('status') == 'abort': err = 'aborted'
-        if err is None and (e := first(outs, lambda o: o['output_type'] == 'error')): err = f"{e.get('ename')}: {e.get('evalue')}"
-        return ExecOutcome(ok=err is None, execution_count=c.get('execution_count'), outputs=outs, error=err)
-    async def _collect(self, msg_id, on_output=None, timeout=None, on_debug=None):
-        "Drain iopub for one request, applying Jupyter display-id updates in place."
-        outs, displays = [], {}
-        while True:
-            try: msg = await self.kc.get_iopub_msg(timeout=timeout or 0.5)
-            except (queue.Empty, asyncio.TimeoutError):
-                if not self.alive: break
-                continue
-            t, c = msg['header']['msg_type'], msg['content']
-            if t == 'debug_event':
-                if c.get('event') == 'stopped': self._debug_thread = (c.get('body') or {}).get('threadId')
-                elif c.get('event') == 'continued': self._debug_thread = None
-                if on_debug: on_debug(c)
-                continue
-            if (msg.get('parent_header') or {}).get('msg_id') != msg_id: continue
-            if t == 'status':
-                if c.get('execution_state') == 'idle': break
-            elif t == 'clear_output': outs.clear()
-            elif o := self._as_output(t, c):
-                display_id = (c.get('transient') or {}).get('display_id')
-                if t == 'update_display_data' and display_id in displays:
-                    outs[displays[display_id]] = o
-                elif (o['output_type'] == 'stream' and outs and outs[-1].get('output_type') == 'stream'
-                    and outs[-1].get('name') == o['name']): outs[-1]['text'] += o['text']
-                else:
-                    outs.append(o)
-                    if display_id: displays[display_id] = len(outs) - 1
-                if on_output:
-                    event = dict(o)
-                    if display_id: event.update(_display_id=display_id, _update=(t == 'update_display_data'))
-                    on_output(event)
-        return outs
-    @staticmethod
-    def _as_output(msg_type, c):
-        "An iopub message as an nbformat output dict, or None if it carries no output."
-        if msg_type == 'stream': return {'output_type': 'stream', 'name': c.get('name', 'stdout'), 'text': c.get('text', '')}
-        if msg_type == 'error':
-            return {'output_type': 'error', 'ename': c.get('ename', ''), 'evalue': c.get('evalue', ''),
-                'traceback': list(c.get('traceback') or [])}
-        if msg_type in ('execute_result', 'display_data', 'update_display_data'):
-            o = {'output_type': 'execute_result' if msg_type == 'execute_result' else 'display_data',
-                'data': c.get('data') or {}, 'metadata': c.get('metadata') or {}}
-            if msg_type == 'execute_result': o['execution_count'] = c.get('execution_count')
-            return o
-        return None
-    async def _reply(self, msg_id, timeout=None):
-        "The shell reply for one request, skipping replies to anything else."
-        while True:
-            try: msg = await self.kc.get_shell_msg(timeout=timeout or 10)
-            except (queue.Empty, asyncio.TimeoutError): return None
-            if (msg.get('parent_header') or {}).get('msg_id') == msg_id: return msg
+        if had:
+            self.emit('kernel_gone')
+            await self.feed.flush()
+    async def _reply(self, msg_id, timeout=10):
+        "The shell reply to one request, or None when none comes within `timeout`. Call it straight after sending, before any await."
+        fut = self._waiters[msg_id] = asyncio.get_running_loop().create_future()
+        try: return await asyncio.wait_for(fut, timeout)
+        except asyncio.TimeoutError: return None
+        finally: self._waiters.pop(msg_id, None)
+    async def comm_info(self, target_name=None, timeout=10):
+        "The kernel's open comms, optionally only those for `target_name`; answered after any running cell."
+        if not self.comms: return await super().comm_info(target_name)
+        if not self.alive: return {}
+        r = await self._reply(self.kc.comm_info(target_name), timeout)
+        return (r or {}).get('content', {})
     async def debug_request(self, command, arguments=None, timeout=15):
         "Send one Jupyter Debug Protocol/DAP request over ipykernel's control channel."
         if self.kernel != 'ipykernel': raise RuntimeError('cell debugging currently requires an ipykernel runtime')
@@ -402,25 +608,21 @@ class Kernel(InspectorClient):
     async def complete(self, code, pos):
         "Completions at `pos` in the browser's `{from, matches}` response shape."
         if not self.alive: return {'from': pos, 'matches': []}
-        async with self._shell_lock:
-            msg_id = self.kc.complete(code, pos)
-            r = await self._reply(msg_id)
+        r = await self._reply(self.kc.complete(code, pos))
         c = (r or {}).get('content', {})
         return {'from': c.get('cursor_start', pos), 'matches': list(c.get('matches') or [])[:50]}
     async def inspect_obj(self, code, pos, detail=0):
         "Kernel-side introspection (signature and docstring) for the object at `pos`; '' when unknown."
         if not self.alive: return ''
-        async with self._shell_lock:
-            msg_id = self.kc.inspect(code, pos, detail_level=detail)
-            r = await self._reply(msg_id)
+        r = await self._reply(self.kc.inspect(code, pos, detail_level=detail))
         c = (r or {}).get('content', {})
         if not c.get('found'): return ''
         return strip_ansi((c.get('data') or {}).get('text/plain') or '')
 
 # %% ../nbs/04_kernel.ipynb #714bc503
 #: What a gateway needs, with the version range each import has to satisfy.
-#: `jupyasyncclient` 0.2.8 leaves the gateway executing nothing, so it is excluded here as in `pyproject.toml`.
-GATEWAY_DEPS = (('jupygate', ''), ('jupyasyncclient', '>=0.2.1,!=0.2.8'))
+#: `GatewayKernel` reads through jupyasyncclient's `on_jmsg` routing, as `pyproject.toml` requires.
+GATEWAY_DEPS = (('jupygate', ''), ('jupyasyncclient', '>=0.2.12'))
 
 # %% ../nbs/04_kernel.ipynb #27a7ac65
 def check_gateway_deps():
@@ -461,7 +663,7 @@ class GatewayService:
         if self.server is not None: self.server.should_exit = True
 
 # %% ../nbs/04_kernel.ipynb #0f2d1ab7
-class GatewayKernel(InspectorClient):
+class GatewayKernel(MessageRouter):
     "The `Kernel` interface over jupygate + jupyasyncclient, so a kernel outlives a client reconnect."
     lang = 'python'
     def __init__(self, gateway, cwd=None, name=None, python=None, inspect=True,
@@ -476,8 +678,11 @@ class GatewayKernel(InspectorClient):
         self._registry_name = f'{self.name or "kernel"}:{uuid.uuid4().hex[:10]}'
         self._exec_lock = asyncio.Lock()
         self._exec_task = None
+        self._init_router()
     @property
     def alive(self): return self._alive and self.kc is not None
+    @property
+    def comms(self): return self.kernel == 'ipykernel'
     @property
     def pid(self): return None
     async def start(self, timeout=60):
@@ -489,6 +694,7 @@ class GatewayKernel(InspectorClient):
             timeout=timeout, argv=argv,
             env=_kernel_env(self.python),
             cwd=work_dir(self.cwd))
+        self.kc.on_jmsg = self._route    # every message no request of the client's own claims, across reconnects
         self._alive = True
         if self.inspect: await self.bootstrap()
         return self
@@ -502,26 +708,33 @@ class GatewayKernel(InspectorClient):
             if rows := [e for e in active() if e.get('name') == self._registry_name]: return rows[-1]['base']
             await asyncio.sleep(.05)
         return None
-    async def execute(self, code, silent=False, store_history=True, on_output=None, timeout=None):
-        if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
-        async with self._exec_lock:
-            task = asyncio.current_task()
-            self._exec_task = task
-            self.touch()
-            run = self.kc.run(code, silent=silent, store_history=store_history)
-            outputs = []
-            try:
-                async for output in run:
-                    outputs.append(output)
-                    if on_output: on_output(output)
-            except Exception as e: return ExecOutcome(ok=False, outputs=outputs, error=str(e))
-            finally:
-                self.touch()
-                if self._exec_task is task: self._exec_task = None
-        reply = (run.reply or {}).get('content', {})
-        error = None if run.status == 'ok' else f"{reply.get('ename', run.status)}: {reply.get('evalue', '')}".rstrip(': ')
-        return ExecOutcome(ok=error is None, execution_count=run.execution_count,
-            outputs=outputs, error=error)
+    def _send_execute(self, code, **kw): return self.kc.execute(code, allow_stdin=False, **kw)
+    def _send_shell(self, msg): self.kc.send(msg, 'shell')
+    def _quiet(self, run):
+        ws = getattr(self.kc, '_ws', None)
+        if run.probe is not None and run.probe_ws is not ws:    # asked on a socket that has since died, so no answer can come
+            run.probe.cancel()
+            run.probe = None
+        if run.probe is None and time.monotonic() - run.last >= QUIET:
+            run.probe, run.probe_ws = asyncio.ensure_future(self._probe(run)), ws
+    async def _probe(self, run):
+        "A shell `kernel_info` queues behind the execute, so an answer while the run still waits means its own reply was lost."
+        try: await self.kc.kernel_info(timeout=PROBE_WAIT)
+        except asyncio.TimeoutError:
+            if not self.kc.channels_running: return run.settle('the gateway connection is gone')
+            run.probe = None
+            return
+        except Exception as e: return run.settle(f'{type(e).__name__}: {e}')
+        try: await asyncio.wait_for(run.done.wait(), QUIET)
+        except asyncio.TimeoutError:
+            run.lost = True
+            run.settle()
+    async def comm_info(self, target_name=None, timeout=10):
+        "The kernel's open comms, optionally only those for `target_name`; answered after any running cell."
+        if not self.comms: return await super().comm_info(target_name)
+        if not self.alive: return {}
+        try: return (await self.kc.comm_info(target_name, timeout=timeout))['content']
+        except asyncio.TimeoutError: return {}
     async def complete(self, code, pos):
         if not self.alive: return {'from': pos, 'matches': []}
         matches, start = await self.kc.complete(code, pos)
@@ -535,11 +748,21 @@ class GatewayKernel(InspectorClient):
     async def restart(self):
         if not self.kc: return
         self.base = self.boot_error = None
+        self._settle_runs('kernel restarted')
+        self._output_comms.clear()
         await self.kc.restart_kernel(); await self.kc.wait_for_ready(timeout=60)
+        self.emit('kernel_restart')
         if self.inspect: await self.bootstrap()
     async def _release(self):
         await self.kc.shutdown_kernel()
         await self.kc.aclose()
     async def shutdown(self):
-        if self.kc: await give_up_after(self._release())
+        had = self.kc is not None
+        self._settle_runs('kernel is not running')
+        if had:
+            self.kc.on_jmsg = None
+            await give_up_after(self._release())
         self.kc, self.base, self._alive = None, None, False
+        if had:
+            self.emit('kernel_gone')
+            await self.feed.flush()
