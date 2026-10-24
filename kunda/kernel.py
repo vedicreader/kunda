@@ -37,8 +37,8 @@ def ipymini_available():
 _log = logging.getLogger(__name__)
 #: How long a gateway run may hear nothing before kunda asks whether its reply was lost, and how long that question may wait.
 QUIET, PROBE_WAIT = 2.0, 30.0
-#: How long the inspector's bootstrap cell may run. dhrishti picks a free port before it binds it, so a kernel starting beside another can lose
-#: the port, and its cell then waits forever for a server that never starts.
+#: How long the inspector's bootstrap cell may run before it is interrupted and tried once more; dhrishti before 0.1.10 could lose its port
+#: to a kernel starting beside it and wait forever.
 BOOT_WAIT = 30.0
 #: How many messages wait for slow subscribers before the oldest is dropped.
 SUBSCRIBER_QUEUE = 1000
