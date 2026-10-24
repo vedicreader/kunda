@@ -1,4 +1,4 @@
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 # The names a host reaches for. `kunda.pythons` imports nothing but fastcore, so asking which
 # interpreter a folder uses costs nothing; everything below it wants jupyter_client.

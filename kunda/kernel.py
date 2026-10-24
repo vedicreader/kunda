@@ -14,9 +14,9 @@ from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
 from .spec import ExecOutcome, KernelStartError, _kernel_env, runtime_python, kernel_spec, bootstrap_src, kernelspec_for, missing_kernel_module, output_text
 
 # %% auto #0
-__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'QUIET', 'PROBE_WAIT', 'SUBSCRIBER_QUEUE', 'COMM_MSGS', 'OUTPUT_MSGS', 'GATEWAY_DEPS',
-           'give_up_after', 'ipymini_available', 'CommsUnsupported', 'comm_content', 'Feed', 'InspectorClient',
-           'MessageRouter', 'Kernel', 'check_gateway_deps', 'GatewayService', 'GatewayKernel']
+__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'QUIET', 'PROBE_WAIT', 'BOOT_WAIT', 'SUBSCRIBER_QUEUE', 'COMM_MSGS', 'OUTPUT_MSGS',
+           'GATEWAY_DEPS', 'give_up_after', 'ipymini_available', 'CommsUnsupported', 'comm_content', 'Feed',
+           'InspectorClient', 'MessageRouter', 'Kernel', 'check_gateway_deps', 'GatewayService', 'GatewayKernel']
 
 # %% ../nbs/04_kernel.ipynb #cf6bf71a
 KERNELS, SHUTDOWN_WAIT = ('ipykernel', 'ipymini'), 5.0
@@ -37,6 +37,9 @@ def ipymini_available():
 _log = logging.getLogger(__name__)
 #: How long a gateway run may hear nothing before kunda asks whether its reply was lost, and how long that question may wait.
 QUIET, PROBE_WAIT = 2.0, 30.0
+#: How long the inspector's bootstrap cell may run. dhrishti picks a free port before it binds it, so a kernel starting beside another can lose
+#: the port, and its cell then waits forever for a server that never starts.
+BOOT_WAIT = 30.0
 #: How many messages wait for slow subscribers before the oldest is dropped.
 SUBSCRIBER_QUEUE = 1000
 COMM_MSGS = ('comm_open', 'comm_msg', 'comm_close')
@@ -146,9 +149,11 @@ class InspectorClient:
         "The name the in-kernel inspector registers itself under."
         return self.name
     async def bootstrap(self):
-        "Start the inspector inside the kernel and record its base URL."
-        src = bootstrap_src(self._boot_name, self.port, self.agent, True)
-        r = await self.execute(src, silent=True, store_history=False)
+        "Start the inspector inside the kernel and record its base URL. A bootstrap past `BOOT_WAIT` is interrupted and tried once more."
+        for _ in range(2):
+            r = await self.execute(bootstrap_src(self._boot_name, self.port, self.agent, True), silent=True, store_history=False, timeout=BOOT_WAIT)
+            if r.ok or not (r.error or '').startswith('timed out'): break
+            await self.interrupt()
         if not r.ok:
             self.boot_error = r.error or r.text or 'inspector bootstrap failed'
             return None

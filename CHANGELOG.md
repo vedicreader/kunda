@@ -2,6 +2,9 @@
 
 <!-- do not remove -->
 
+## 0.0.7
+- `InspectorClient.bootstrap` runs its cell with a `BOOT_WAIT` (30 s) timeout; on a timeout it interrupts the kernel and tries once more on the next free port. Before, two kernels starting at once could pick the same inspector port, the loser's bootstrap never finished, and `Kernel.start` and `KernelPool.get` waited forever.
+
 ## 0.0.6
 
 

@@ -83,6 +83,23 @@ async def test_the_kernel_runs_in_the_directory_it_was_given(tmp_path):
         assert 'found me' in (await run(k, 'print(open("marker.txt").read())')).text
     finally: await k.shutdown()
 
+async def test_a_bootstrap_that_never_ends_is_interrupted_and_tried_again(tmp_path, monkeypatch):
+    """Two kernels starting together could pick the same inspector port. The loser's cell waited for a server that
+    never started, so its `start` never returned and its shell took no other cell."""
+    import kunda.kernel as K
+    real, calls = K.bootstrap_src, []
+    def wedged_once(*a, **kw):
+        calls.append(a)
+        return 'import time\nwhile True: time.sleep(.01)' if len(calls) == 1 else real(*a, **kw)
+    monkeypatch.setattr(K, 'bootstrap_src', wedged_once)
+    monkeypatch.setattr(K, 'BOOT_WAIT', 2.0, raising=False)
+    k = Kernel(cwd=str(tmp_path))
+    try:
+        await asyncio.wait_for(k.start(), 60)
+        assert len(calls) == 2 and k.base and k.boot_error is None, (calls, k.base, k.boot_error)
+        assert (await run(k, '1+1', timeout=10)).ok, 'and the interrupted shell takes the next cell'
+    finally: await k.shutdown()
+
 def test_a_missing_kernel_module_is_named_before_the_protocol_can_confuse_it():
     """Without this, an environment lacking ipykernel reports only that the kernel died before
     answering `kernel_info`, which says nothing about the remedy."""
