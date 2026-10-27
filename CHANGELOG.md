@@ -2,6 +2,10 @@
 
 <!-- do not remove -->
 
+## 0.0.8
+- A gateway kernel can debug a cell. `GatewayKernel` now has `debug_start`, `debug_variables`, `debug_state`, `debug_evaluate`, `debug_complete`, `debug_control` and `debug_stop`, the same as the direct `Kernel`. Both share this code in `DebugClient`. The gateway sends each debugger request on the control channel and waits for its reply.
+- A restart or a shutdown of a gateway kernel ends a debugger request that is still waiting, with an error, so the caller does not wait forever.
+
 ## 0.0.7
 - `InspectorClient.bootstrap` runs its cell with a `BOOT_WAIT` (30 s) timeout; on a timeout it interrupts the kernel and tries once more on the next free port. Before, two kernels starting at once could pick the same inspector port, the loser's bootstrap never finished, and `Kernel.start` and `KernelPool.get` waited forever.
 
