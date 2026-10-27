@@ -16,7 +16,8 @@ from .spec import ExecOutcome, KernelStartError, _kernel_env, runtime_python, ke
 # %% auto #0
 __all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'QUIET', 'PROBE_WAIT', 'BOOT_WAIT', 'SUBSCRIBER_QUEUE', 'COMM_MSGS', 'OUTPUT_MSGS',
            'GATEWAY_DEPS', 'give_up_after', 'ipymini_available', 'CommsUnsupported', 'comm_content', 'Feed',
-           'InspectorClient', 'MessageRouter', 'Kernel', 'check_gateway_deps', 'GatewayService', 'GatewayKernel']
+           'InspectorClient', 'MessageRouter', 'DebugClient', 'Kernel', 'check_gateway_deps', 'GatewayService',
+           'GatewayKernel']
 
 # %% ../nbs/04_kernel.ipynb #cf6bf71a
 KERNELS, SHUTDOWN_WAIT = ('ipykernel', 'ipymini'), 5.0
@@ -355,8 +356,114 @@ class MessageRouter(InspectorClient):
         self.touch()
         return msg['header']['msg_id']
 
+# %% ../nbs/04_kernel.ipynb #b428ebe7
+class DebugClient:
+    "Cell debugging over the Jupyter Debug Protocol, shared by `Kernel` and `GatewayKernel`; each transport supplies `debug_request`."
+    def _init_debugger(self):
+        self._debug_lock, self._debug_seq, self._debug_pending = asyncio.Lock(), 0, None
+        self._debug_thread = self._debug_source = None
+        self._debug_sources = {}
+    def _debug_check(self):
+        if self.kernel != 'ipykernel': raise RuntimeError('cell debugging currently requires an ipykernel runtime')
+        if not self.alive: raise RuntimeError('kernel is not running')
+    def _debug_next(self, command, arguments=None):
+        "The next DAP request. Call it holding `_debug_lock`, so seq numbers rise in the order requests are sent."
+        self._debug_seq += 1
+        return {'seq': self._debug_seq, 'type': 'request', 'command': command, 'arguments': arguments or {}}
+    @staticmethod
+    def _debug_answer(command, reply):
+        "The content of a debug reply, raising when the debugger did not succeed."
+        out = reply.get('content') or {}
+        if not out.get('success', False): raise RuntimeError(out.get('message') or f'debugger rejected {command}')
+        return out
+    def _debug_reset(self, reason):
+        "Forget the session of a kernel that is gone or new, settling a request still waiting with `reason`."
+        if (t := self._debug_pending) is not None and not t.done(): t.cancel(reason)
+        self._debug_thread = self._debug_source = None
+        self._debug_sources = {}
+    async def debug_start(self, code, breakpoints=(), notebook_cells=()):
+        "Initialize debugpy and map every notebook cell source to ipykernel's debug files."
+        await self.debug_request('initialize', {
+            'clientID': 'leela', 'clientName': 'Leela', 'adapterID': 'python',
+            'pathFormat': 'path', 'linesStartAt1': True, 'columnsStartAt1': True,
+            'supportsVariableType': True, 'supportsVariablePaging': True,
+        })
+        await self.debug_request('attach')
+        self._debug_sources = {}
+        for cell_id, source in notebook_cells:
+            dumped = await self.debug_request('dumpCell', {'code': source})
+            if (path := dumped.get('body', {}).get('sourcePath')): self._debug_sources[path] = cell_id
+        dumped = await self.debug_request('dumpCell', {'code': code})
+        self._debug_source = dumped.get('body', {}).get('sourcePath')
+        if not self._debug_source: raise RuntimeError('ipykernel did not create a debug source for the cell')
+        requested = [{'line': max(1, int(line))} for line in breakpoints]
+        set_reply = await self.debug_request('setBreakpoints', {
+            'source': {'path': self._debug_source}, 'breakpoints': requested,
+            'sourceModified': False,
+        })
+        await self.debug_request('configurationDone')
+        return [b.get('line') for b in set_reply.get('body', {}).get('breakpoints', [])
+            if b.get('verified', True)]
+    async def debug_variables(self, reference, start=0, count=200):
+        "Children of one paused DAP variable, preserving references for recursive expansion."
+        reply = await self.debug_request('variables', {
+            'variablesReference': int(reference), 'start': int(start), 'count': int(count),
+        })
+        return reply.get('body', {}).get('variables', [])
+    async def debug_state(self, thread_id=None, frame_id=None):
+        "The paused call stack and locals for the selected frame, normalized for the browser."
+        thread_id = int(thread_id or self._debug_thread or 0)
+        if not thread_id: return {'paused': False, 'frames': [], 'variables': []}
+        stack = await self.debug_request('stackTrace', {'threadId': thread_id,
+            'startFrame': 0, 'levels': 50})
+        frames = stack.get('body', {}).get('stackFrames', [])
+        selected = first(frames, lambda f: f.get('id') == int(frame_id or -1)) or first(frames)
+        variables, scopes = [], []
+        if selected:
+            scope_reply = await self.debug_request('scopes', {'frameId': selected['id']})
+            scopes = scope_reply.get('body', {}).get('scopes', [])
+            local = first(scopes, lambda s: s.get('name', '').lower() == 'locals') or first(scopes)
+            if local and local.get('variablesReference'): variables = await self.debug_variables(local['variablesReference'])
+        return {'paused': True, 'thread_id': thread_id, 'frame_id': selected.get('id') if selected else None,
+            'frames': frames, 'scopes': scopes, 'variables': variables,
+            'source': self._debug_source}
+    async def debug_evaluate(self, expression, frame_id=None):
+        "Evaluate an expression in the selected paused frame, the debugger's exec console."
+        if not self._debug_thread: raise RuntimeError('the debugger is not paused')
+        if frame_id is None:
+            state = await self.debug_state()
+            frame_id = state.get('frame_id')
+        reply = await self.debug_request('evaluate', {
+            'expression': str(expression), 'frameId': int(frame_id), 'context': 'repl',
+        })
+        return reply.get('body', {})
+    async def debug_complete(self, code, pos, frame_id=None):
+        "Completions from the paused frame without queueing a shell request behind it."
+        if frame_id is None:
+            state = await self.debug_state()
+            frame_id = state.get('frame_id')
+        reply = await self.debug_request('completions', {
+            'text': str(code), 'column': int(pos) + 1, 'frameId': int(frame_id),
+        })
+        targets = reply.get('body', {}).get('targets', [])
+        return {'from': int(pos), 'matches': [t.get('text') or t.get('label') for t in targets
+            if t.get('text') or t.get('label')][:50]}
+    async def debug_control(self, command, thread_id=None):
+        if command not in {'continue', 'next', 'stepIn', 'stepOut', 'pause'}: raise ValueError(f'unknown debug command {command!r}')
+        tid = int(thread_id or self._debug_thread or 0)
+        if not tid: raise RuntimeError('the debugger is not paused')
+        out = await self.debug_request(command, {'threadId': tid})
+        if command != 'pause': self._debug_thread = None
+        return out
+    async def debug_stop(self):
+        if self.kernel != 'ipykernel': return
+        try: await self.debug_request('disconnect', {'restart': False, 'terminateDebuggee': False})
+        finally:
+            self._debug_thread = self._debug_source = None
+            self._debug_sources = {}
+
 # %% ../nbs/04_kernel.ipynb #5d41a15e
-class Kernel(MessageRouter):
+class Kernel(DebugClient, MessageRouter):
     "One ipykernel process: execute/complete over jupyter_client, live variables over its in-kernel."
     def __init__(self,
         cwd=None,
@@ -385,11 +492,7 @@ class Kernel(MessageRouter):
         self._exec_task = None
         self._readers = []
         self._init_router()
-        self._debug_lock = asyncio.Lock()
-        self._debug_seq = 0
-        self._debug_thread = None
-        self._debug_source = None
-        self._debug_sources = {}
+        self._init_debugger()
     @property
     def alive(self):
         "True only once the process and its usable client are both ready."
@@ -514,102 +617,16 @@ class Kernel(MessageRouter):
         return (r or {}).get('content', {})
     async def debug_request(self, command, arguments=None, timeout=15):
         "Send one Jupyter Debug Protocol/DAP request over ipykernel's control channel."
-        if self.kernel != 'ipykernel': raise RuntimeError('cell debugging currently requires an ipykernel runtime')
-        if not self.alive: raise RuntimeError('kernel is not running')
+        self._debug_check()
         async with self._debug_lock:
-            self._debug_seq += 1
-            content = {'seq': self._debug_seq, 'type': 'request', 'command': command,
-                'arguments': arguments or {}}
-            msg = self.kc.session.msg('debug_request', content=content)
+            msg = self.kc.session.msg('debug_request', content=self._debug_next(command, arguments))
             self.kc.control_channel.send(msg)
             while True:
                 try: reply = await self.kc.get_control_msg(timeout=timeout)
                 except (queue.Empty, asyncio.TimeoutError):
                     raise TimeoutError(f'debugger did not answer {command}')
                 if (reply.get('parent_header') or {}).get('msg_id') != msg['header']['msg_id']: continue
-                out = reply.get('content') or {}
-                if not out.get('success', False): raise RuntimeError(out.get('message') or f'debugger rejected {command}')
-                return out
-    async def debug_start(self, code, breakpoints=(), notebook_cells=()):
-        "Initialize debugpy and map every notebook cell source to ipykernel's debug files."
-        await self.debug_request('initialize', {
-            'clientID': 'leela', 'clientName': 'Leela', 'adapterID': 'python',
-            'pathFormat': 'path', 'linesStartAt1': True, 'columnsStartAt1': True,
-            'supportsVariableType': True, 'supportsVariablePaging': True,
-        })
-        await self.debug_request('attach')
-        self._debug_sources = {}
-        for cell_id, source in notebook_cells:
-            dumped = await self.debug_request('dumpCell', {'code': source})
-            if (path := dumped.get('body', {}).get('sourcePath')): self._debug_sources[path] = cell_id
-        dumped = await self.debug_request('dumpCell', {'code': code})
-        self._debug_source = dumped.get('body', {}).get('sourcePath')
-        if not self._debug_source: raise RuntimeError('ipykernel did not create a debug source for the cell')
-        requested = [{'line': max(1, int(line))} for line in breakpoints]
-        set_reply = await self.debug_request('setBreakpoints', {
-            'source': {'path': self._debug_source}, 'breakpoints': requested,
-            'sourceModified': False,
-        })
-        await self.debug_request('configurationDone')
-        return [b.get('line') for b in set_reply.get('body', {}).get('breakpoints', [])
-            if b.get('verified', True)]
-    async def debug_variables(self, reference, start=0, count=200):
-        "Children of one paused DAP variable, preserving references for recursive expansion."
-        reply = await self.debug_request('variables', {
-            'variablesReference': int(reference), 'start': int(start), 'count': int(count),
-        })
-        return reply.get('body', {}).get('variables', [])
-    async def debug_state(self, thread_id=None, frame_id=None):
-        "The paused call stack and locals for the selected frame, normalized for the browser."
-        thread_id = int(thread_id or self._debug_thread or 0)
-        if not thread_id: return {'paused': False, 'frames': [], 'variables': []}
-        stack = await self.debug_request('stackTrace', {'threadId': thread_id,
-            'startFrame': 0, 'levels': 50})
-        frames = stack.get('body', {}).get('stackFrames', [])
-        selected = first(frames, lambda f: f.get('id') == int(frame_id or -1)) or first(frames)
-        variables, scopes = [], []
-        if selected:
-            scope_reply = await self.debug_request('scopes', {'frameId': selected['id']})
-            scopes = scope_reply.get('body', {}).get('scopes', [])
-            local = first(scopes, lambda s: s.get('name', '').lower() == 'locals') or first(scopes)
-            if local and local.get('variablesReference'): variables = await self.debug_variables(local['variablesReference'])
-        return {'paused': True, 'thread_id': thread_id, 'frame_id': selected.get('id') if selected else None,
-            'frames': frames, 'scopes': scopes, 'variables': variables,
-            'source': self._debug_source}
-    async def debug_evaluate(self, expression, frame_id=None):
-        "Evaluate an expression in the selected paused frame, the debugger's exec console."
-        if not self._debug_thread: raise RuntimeError('the debugger is not paused')
-        if frame_id is None:
-            state = await self.debug_state()
-            frame_id = state.get('frame_id')
-        reply = await self.debug_request('evaluate', {
-            'expression': str(expression), 'frameId': int(frame_id), 'context': 'repl',
-        })
-        return reply.get('body', {})
-    async def debug_complete(self, code, pos, frame_id=None):
-        "Completions from the paused frame without queueing a shell request behind it."
-        if frame_id is None:
-            state = await self.debug_state()
-            frame_id = state.get('frame_id')
-        reply = await self.debug_request('completions', {
-            'text': str(code), 'column': int(pos) + 1, 'frameId': int(frame_id),
-        })
-        targets = reply.get('body', {}).get('targets', [])
-        return {'from': int(pos), 'matches': [t.get('text') or t.get('label') for t in targets
-            if t.get('text') or t.get('label')][:50]}
-    async def debug_control(self, command, thread_id=None):
-        if command not in {'continue', 'next', 'stepIn', 'stepOut', 'pause'}: raise ValueError(f'unknown debug command {command!r}')
-        tid = int(thread_id or self._debug_thread or 0)
-        if not tid: raise RuntimeError('the debugger is not paused')
-        out = await self.debug_request(command, {'threadId': tid})
-        if command != 'pause': self._debug_thread = None
-        return out
-    async def debug_stop(self):
-        if self.kernel != 'ipykernel': return
-        try: await self.debug_request('disconnect', {'restart': False, 'terminateDebuggee': False})
-        finally:
-            self._debug_thread = self._debug_source = None
-            self._debug_sources = {}
+                return self._debug_answer(command, reply)
     async def complete(self, code, pos):
         "Completions at `pos` in the browser's `{from, matches}` response shape."
         if not self.alive: return {'from': pos, 'matches': []}
@@ -668,7 +685,7 @@ class GatewayService:
         if self.server is not None: self.server.should_exit = True
 
 # %% ../nbs/04_kernel.ipynb #0f2d1ab7
-class GatewayKernel(MessageRouter):
+class GatewayKernel(DebugClient, MessageRouter):
     "The `Kernel` interface over jupygate + jupyasyncclient, so a kernel outlives a client reconnect."
     lang = 'python'
     def __init__(self, gateway, cwd=None, name=None, python=None, inspect=True,
@@ -684,6 +701,7 @@ class GatewayKernel(MessageRouter):
         self._exec_lock = asyncio.Lock()
         self._exec_task = None
         self._init_router()
+        self._init_debugger()
     @property
     def alive(self): return self._alive and self.kc is not None
     @property
@@ -740,6 +758,21 @@ class GatewayKernel(MessageRouter):
         if not self.alive: return {}
         try: return (await self.kc.comm_info(target_name, timeout=timeout))['content']
         except asyncio.TimeoutError: return {}
+    async def debug_request(self, command, arguments=None, timeout=15):
+        "Send one Jupyter Debug Protocol/DAP request on the control channel through the gateway."
+        self._debug_check()
+        async with self._debug_lock:
+            self._debug_check()    # a shutdown may have taken `kc` while this request waited for the lock
+            content = self._debug_next(command, arguments)
+            t = self._debug_pending = asyncio.ensure_future(self.kc.request('debug_request', content, channel='control', timeout=timeout))
+            try: reply = await t
+            except asyncio.TimeoutError: raise TimeoutError(f'debugger did not answer {command}') from None
+            except asyncio.CancelledError as e:
+                if not t.cancelled() or asyncio.current_task().cancelling(): raise    # our caller was cancelled, not the kernel reset
+                raise RuntimeError(str(e) or f'debugger did not answer {command}') from None
+            finally: self._debug_pending = None
+            if reply.get('msg_type') != 'debug_reply': raise RuntimeError(f"debugger answered {command} with {reply.get('msg_type')}")
+            return self._debug_answer(command, reply)
     async def complete(self, code, pos):
         if not self.alive: return {'from': pos, 'matches': []}
         matches, start = await self.kc.complete(code, pos)
@@ -754,6 +787,7 @@ class GatewayKernel(MessageRouter):
         if not self.kc: return
         self.base = self.boot_error = None
         self._settle_runs('kernel restarted')
+        self._debug_reset('kernel restarted')
         self._output_comms.clear()
         await self.kc.restart_kernel(); await self.kc.wait_for_ready(timeout=60)
         self.emit('kernel_restart')
@@ -764,6 +798,7 @@ class GatewayKernel(MessageRouter):
     async def shutdown(self):
         had = self.kc is not None
         self._settle_runs('kernel is not running')
+        self._debug_reset('kernel is not running')
         if had:
             self.kc.on_jmsg = None
             await give_up_after(self._release())
