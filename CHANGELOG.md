@@ -2,6 +2,11 @@
 
 <!-- do not remove -->
 
+## 0.0.9
+- A gateway kernel starts again with jupyasyncclient 0.2.21. That client no longer sends `argv` when it creates a kernel, so `GatewayKernel.start` now creates the kernel itself through the gateway API with `argv`, and then connects the client to that kernel.
+- When the gateway websocket drops during a quiet run, the probe asks again after the client reconnects. Before, jupyasyncclient 0.2.21 failed the probe at once, and the run ended with a connection error in place of `lost`.
+- kunda needs jupygate 0.0.5, jupyasyncclient 0.2.21 and jupywire 0.1.14 or later. These three releases work together.
+
 ## 0.0.8
 - A gateway kernel can debug a cell. `GatewayKernel` now has `debug_start`, `debug_variables`, `debug_state`, `debug_evaluate`, `debug_complete`, `debug_control` and `debug_stop`, the same as the direct `Kernel`. Both share this code in `DebugClient`. The gateway sends each debugger request on the control channel and waits for its reply.
 - A restart or a shutdown of a gateway kernel ends a debugger request that is still waiting, with an error, so the caller does not wait forever.

@@ -426,15 +426,15 @@ wheels = [
 
 [[package]]
 name = "fastspec"
-version = "0.2.4"
+version = "0.2.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastcore" },
     { name = "fasttransport" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/dd/1801813abfa461f81501bdce9ff1a57e786539bc424ade09197dc8d33adf/fastspec-0.2.4.tar.gz", hash = "sha256:4a594a4abab4f715c801b2e2cba1045a4aa345830575343358186b15c98c21cb", size = 30067, upload-time = "2026-09-01T04:56:48.703Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/47/5bfdc91796ab98013cf74a9a7bd945598c5ed43ef5756970b8fda785de80/fastspec-0.2.6.tar.gz", hash = "sha256:675025b7e0596af986ac1eec961790b6a129f3b80ac74dc7eca8b2d80d34b3c5", size = 30402, upload-time = "2026-10-27T05:25:25.777Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/78/208507d3d15a8f8ee925d345e0680478153cefe8e5404003edef24ccc04c/fastspec-0.2.4-py3-none-any.whl", hash = "sha256:c0811499a3ad7beb5a337c3d1bed4209c65cfeacd1f99ecb1e7c693f6fdff3c6", size = 26957, upload-time = "2026-09-01T04:56:47.646Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/df/c37a03ce9ef09953767c8f790e082c30e165a822af9c4df2de66761216e3/fastspec-0.2.6-py3-none-any.whl", hash = "sha256:cdbcfe3ebe129cbccde8182a9456332b5cf5c5db75ea14321f464f0a1c31f20e", size = 27943, upload-time = "2026-10-27T05:25:24.377Z" },
 ]
 
 [[package]]
@@ -778,7 +778,7 @@ wheels = [
 
 [[package]]
 name = "jupyasyncclient"
-version = "0.2.12"
+version = "0.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastcore" },
@@ -787,14 +787,14 @@ dependencies = [
     { name = "jupywire" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/77/635616e7c3f8a9a90b848ec7ea367978f8f36723466165b8acb23d641398/jupyasyncclient-0.2.12.tar.gz", hash = "sha256:51d6f864d2e4ddd526680a041e18b92a1a5127037b96b7d8ac6cb99c38986440", size = 21860, upload-time = "2026-09-01T04:59:26.46Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/17/278c505af31beaeda4ed69f205315fe92c636ee9420ebab8baef28f6df27/jupyasyncclient-0.2.21.tar.gz", hash = "sha256:885509ccceb20010bb50d3f053c112d807efbbadb5084f0b086604e66b4c02aa", size = 19920, upload-time = "2026-10-28T05:12:48.97Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/33/5cd886e243ebf31d150212e58aec7e6f27860dc1deb73d085ae84f1744b0/jupyasyncclient-0.2.12-py3-none-any.whl", hash = "sha256:95991cccaa7a74d121c4fca3927a7b06e0d6b9915dea222318ba3e9f794688cb", size = 22294, upload-time = "2026-09-01T04:59:25.152Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/5e/be4d73714cf2f38ea117cc2024241750f91dc5a2220e686729ec02aea8f5/jupyasyncclient-0.2.21-py3-none-any.whl", hash = "sha256:0ab21b8933ab15a0ee2add04b4cdddd7154da33027daa58e282c999f0b77e073", size = 19802, upload-time = "2026-10-28T05:12:47.058Z" },
 ]
 
 [[package]]
 name = "jupygate"
-version = "0.0.3"
+version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastcore" },
@@ -804,9 +804,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/39/52/200194174541c4e8e40bd013be525ae31ad6709f199d229335e97aa2e561/jupygate-0.0.3.tar.gz", hash = "sha256:6a013cbb78f020bb6934544dc35cec43fc95be5463c7ffc5d10173ab3d047535", size = 24863, upload-time = "2026-08-12T01:46:23.071Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/59/28/15b97f22943e07f803d41c672923b574d2e5cfefefb3e488004716e1c42c/jupygate-0.0.5.tar.gz", hash = "sha256:2d634f7e443a1f9b90aa238a06aee5c6459719077d0bade9da2e47526271d020", size = 23319, upload-time = "2026-10-27T01:18:51.838Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/e1/e252d2c370c9a6ee2acc0911ee445477117fb878ce2b6d343cb00cc2566a/jupygate-0.0.3-py3-none-any.whl", hash = "sha256:98fb61f5c09bea74c1bc42a6e177a39434e71e7db3236495c5d5ff935a0d0334", size = 20806, upload-time = "2026-08-12T01:46:22.085Z" },
+    { url = "https://files.pythonhosted.org/packages/00/85/b70bf7dcee3ce4f85b986360874d32ca848cdf655fd8721841f5b78cfa49/jupygate-0.0.5-py3-none-any.whl", hash = "sha256:1dadad93eb80df5fba15e40de86a98dc8e05c6fbe04ad64e83ef514a34cdd1fc", size = 18968, upload-time = "2026-10-27T01:18:50.549Z" },
 ]
 
 [[package]]
@@ -850,14 +850,14 @@ wheels = [
 
 [[package]]
 name = "jupywire"
-version = "0.1.9"
+version = "0.1.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastcore" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/2b/42c4f603353c5d775c40ef750d7ac7286fc422fd66c6e90b719a4c46e4fe/jupywire-0.1.9.tar.gz", hash = "sha256:f0c0593d2a41ab9502180ca8d07e0ebd4207a86e1f550d1c78e12ac01debd41f", size = 24657, upload-time = "2026-08-30T05:15:35.176Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/2c/de59a748a3785ca2b032c267951bbcfcb80a88537c62947f713dca8528b1/jupywire-0.1.14.tar.gz", hash = "sha256:5edca31b237e8f3a7c33d06518e4b289678fbb667557af41549bdf29bcdbc04b", size = 24303, upload-time = "2026-10-27T01:04:38.139Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/a7/54d0de5a44c7026488e85d7a8861553100bab7e7c82b8060d3c70c35867f/jupywire-0.1.9-py3-none-any.whl", hash = "sha256:4fa1540320cfc1f5e2de0fa046e5c290002271038488ebe8867e2a56ad43182d", size = 19046, upload-time = "2026-08-30T05:15:34.048Z" },
+    { url = "https://files.pythonhosted.org/packages/95/83/aa1b5bd02e9d4389f022a434fc2ec1664ffc66f36392a09fe4308c9c716a/jupywire-0.1.14-py3-none-any.whl", hash = "sha256:7b2fc6f163ec9c988c29bab1339e4b10c717ef81587161af6f12b6bbf24ad1e9", size = 19886, upload-time = "2026-10-27T01:04:36.805Z" },
 ]
 
 [[package]]
@@ -1047,10 +1047,10 @@ requires-dist = [
     { name = "ipykernel", specifier = ">=6.29" },
     { name = "ipymini", specifier = ">=0.1.17" },
     { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "jupyasyncclient", specifier = ">=0.2.12" },
-    { name = "jupygate", specifier = ">=0.0.1" },
+    { name = "jupyasyncclient", specifier = ">=0.2.21" },
+    { name = "jupygate", specifier = ">=0.0.5" },
     { name = "jupyter-client", specifier = ">=8.6" },
-    { name = "jupywire", specifier = ">=0.1.1" },
+    { name = "jupywire", specifier = ">=0.1.14" },
     { name = "nbdev", marker = "extra == 'dev'", specifier = ">=3.3.21" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.0.0" },

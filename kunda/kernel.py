@@ -713,10 +713,14 @@ class GatewayKernel(DebugClient, MessageRouter):
         from jupyasyncclient import JupyAsyncKernelClient
         self.gateway.start()
         argv = kernel_spec(self.python, ifnone(self.name, 'python3'), self.kernel).argv
-        self.kc = await JupyAsyncKernelClient.connect(self.gateway.url, token=self.gateway.token,
-            timeout=timeout, argv=argv,
-            env=_kernel_env(self.python),
-            cwd=work_dir(self.cwd))
+        kc, cwd = JupyAsyncKernelClient(self.gateway.url, token=self.gateway.token), work_dir(self.cwd)
+        # jupyasyncclient's create_kernel follows rustygate's spec, which has no `argv`; jupygate still reads it
+        m = await kc.transport.request('POST', f'{kc.base_url}/api/kernels',
+            json=dict(argv=argv, env=_kernel_env(self.python), cwd=str(cwd) if cwd else None))
+        kc.kernel_id, kc.owned = m['id'], True
+        kc.start_channels()
+        await kc.wait_for_ready(timeout=timeout)
+        self.kc = kc
         self.kc.on_jmsg = self._route    # every message no request of the client's own claims, across reconnects
         self._alive = True
         if self.inspect: await self.bootstrap()
@@ -745,6 +749,9 @@ class GatewayKernel(DebugClient, MessageRouter):
         try: await self.kc.kernel_info(timeout=PROBE_WAIT)
         except asyncio.TimeoutError:
             if not self.kc.channels_running: return run.settle('the gateway connection is gone')
+            run.probe = None
+            return
+        except ConnectionError:    # the socket dropped under the probe; ask again once the client has redialled
             run.probe = None
             return
         except Exception as e: return run.settle(f'{type(e).__name__}: {e}')
