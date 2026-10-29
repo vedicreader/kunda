@@ -299,10 +299,11 @@ class MessageRouter(InspectorClient):
         "Add one output to its run, applying clear_output and display-id updates the way a notebook does."
         if t == 'clear_output':
             if c.get('wait'): run.clear_next = True
-            else: run.outs.clear(); run.displays.clear()
+            else: run.outs.clear(); run.displays.clear(); self._tell(run, {'output_type': 'clear_output'})
             return
         if not (o := self._as_output(t, c)): return
-        if run.clear_next: run.outs.clear(); run.displays.clear(); run.clear_next = False
+        cleared = run.clear_next
+        if cleared: run.outs.clear(); run.displays.clear(); run.clear_next = False
         outs, displays, display_id = run.outs, run.displays, (c.get('transient') or {}).get('display_id')
         if t == 'update_display_data' and display_id in displays: outs[displays[display_id]] = o
         elif (o['output_type'] == 'stream' and outs and outs[-1].get('output_type') == 'stream'
@@ -310,13 +311,19 @@ class MessageRouter(InspectorClient):
         else:
             outs.append(o)
             if display_id: displays[display_id] = len(outs) - 1
-        if run.on_output:
-            event = dict(o)
-            if display_id: event.update(_display_id=display_id, _update=(t == 'update_display_data'))
-            try: run.on_output(event)
-            except Exception as e: run.raised = e; run.settle()
+        if not run.on_output: return
+        event = dict(o)
+        if display_id: event.update(_display_id=display_id, _update=(t == 'update_display_data'))
+        if cleared: self._tell(run, {'output_type': 'clear_output'})
+        self._tell(run, event)
+    @staticmethod
+    def _tell(run, event):
+        "Pass one event to the run's `on_output`. An exception there ends the run, and `execute` raises it."
+        if not run.on_output: return
+        try: run.on_output(event)
+        except Exception as e: run.raised = e; run.settle()
     async def execute(self, code, silent=False, store_history=True, on_output=None, timeout=None, on_debug=None):
-        "Run `code` and collect nbformat-shaped outputs, streaming each to `on_output`; `timeout` bounds the whole run."
+        "Run `code` and collect nbformat-shaped outputs, streaming each to `on_output`; `timeout` bounds the whole run. `on_output` also gets `{'output_type': 'clear_output'}` when the outputs clear. A consumer that builds the output list resets it on this event."
         if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
         async with self._exec_lock:
             if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')

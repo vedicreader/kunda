@@ -64,6 +64,27 @@ async def test_output_arrives_while_it_runs_not_only_at_the_end(tmp_path):
         assert '0' in output_text(seen)
     finally: await k.shutdown()
 
+CLEARS = "print('a'); from IPython.display import clear_output; clear_output(); print('b')"
+
+def in_order(events):
+    "The events as `(output_type, text)`, with neighbouring stream fragments joined."
+    res = []
+    for e in events:
+        if e['output_type'] == 'stream' and res and res[-1][0] == 'stream': res[-1] = ('stream', res[-1][1] + e['text'])
+        else: res.append((e['output_type'], e.get('text')))
+    return res
+
+async def test_a_clear_output_streams_as_an_event_between_the_outputs(tmp_path):
+    "A consumer that builds the list from the events keeps output the notebook cleared, unless it sees the clear."
+    seen = []
+    k = Kernel(cwd=str(tmp_path), inspect=False)
+    await k.start()
+    try:
+        out = await run(k, CLEARS, on_output=seen.append)
+        assert in_order(seen) == [('stream', 'a\n'), ('clear_output', None), ('stream', 'b\n')], seen
+        assert out.outputs == [{'output_type': 'stream', 'name': 'stdout', 'text': 'b\n'}]
+    finally: await k.shutdown()
+
 async def test_completion_answers_from_the_live_namespace(tmp_path):
     "Completion that cannot see what you just defined is completion from a parser, not a kernel."
     k = Kernel(cwd=str(tmp_path), inspect=False)

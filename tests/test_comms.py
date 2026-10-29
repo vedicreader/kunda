@@ -149,6 +149,16 @@ async def test_a_dropped_gateway_socket_settles_the_run_and_the_router_keeps_goi
         assert (await k.execute('y')).text == '2'
     finally: await k.shutdown()
 
+async def test_a_clear_output_streams_as_an_event_over_the_gateway(tmp_path):
+    "`GatewayKernel` sends the same `clear_output` event as `Kernel`, between the outputs it separates."
+    from test_kernel import CLEARS, in_order
+    k, seen = await started('gateway', tmp_path), []
+    try:
+        r = await k.execute(CLEARS, on_output=seen.append)
+        assert in_order(seen) == [('stream', 'a\n'), ('clear_output', None), ('stream', 'b\n')], seen
+        assert r.outputs == [{'output_type': 'stream', 'name': 'stdout', 'text': 'b\n'}]
+    finally: await k.shutdown()
+
 async def test_a_lost_execute_reply_is_recovered_by_the_probe(tmp_path, monkeypatch):
     "When the reply and idle never arrive, a shell `kernel_info` answered while the run waits settles it as lost."
     monkeypatch.setattr(kmod, 'QUIET', .5)
