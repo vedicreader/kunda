@@ -2,6 +2,9 @@
 
 <!-- do not remove -->
 
+## 0.0.10
+- `execute` now sends `on_output` the event `{'output_type': 'clear_output'}` when the outputs clear. With `wait=True` the event comes immediately before the next output's event. A consumer that builds the output list resets it on this event. Every other event and the final outputs are the same as before.
+
 ## 0.0.9
 - A gateway kernel starts again with jupyasyncclient 0.2.21. That client no longer sends `argv` when it creates a kernel, so `GatewayKernel.start` now creates the kernel itself through the gateway API with `argv`, and then connects the client to that kernel.
 - When the gateway websocket drops during a quiet run, the probe asks again after the client reconnects. Before, jupyasyncclient 0.2.21 failed the probe at once, and the run ended with a connection error in place of `lost`.
