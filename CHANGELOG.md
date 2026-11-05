@@ -2,6 +2,9 @@
 
 <!-- do not remove -->
 
+## 0.0.11
+- kunda needs ipykernel 7.4 or later. ipykernel 7.0 to 7.3 can stop reading its shell socket when a request comes at the same moment as a reply goes out (ipykernel PR #1529). Kunda's check for a lost reply sends `kernel_info` about 2 s into a cell, so a cell of about 2 s could hang until the kernel restarted.
+
 ## 0.0.10
 - `execute` now sends `on_output` the event `{'output_type': 'clear_output'}` when the outputs clear. With `wait=True` the event comes immediately before the next output's event. A consumer that builds the output list resets it on this event. Every other event and the final outputs are the same as before.
 
