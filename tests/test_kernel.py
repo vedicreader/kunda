@@ -145,3 +145,15 @@ def test_outputs_flatten_the_way_a_terminal_would_show_them():
 def test_an_outcome_says_what_it_holds_without_being_asked_twice():
     o = ExecOutcome(outputs=[{'output_type': 'stream', 'text': 'hi'}])
     assert o.ok and o.text == 'hi'
+
+def test_no_ipykernel_with_the_shell_wedge_can_be_installed():
+    "ipykernel 7.0 to 7.3 stops reading shell when a request lands as a reply leaves (ipykernel#1529), so a lost-reply probe never returns."
+    import tomllib
+    from importlib.metadata import version
+    from pathlib import Path
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+    deps = tomllib.loads((Path(__file__).parents[1]/'pyproject.toml').read_text())['project']['dependencies']
+    spec = next(r for r in map(Requirement, deps) if r.name == 'ipykernel').specifier
+    assert not any(spec.contains(v) for v in ('7.0.0', '7.1.0', '7.2.0', '7.3.0')), spec
+    assert not Version('7.0') <= Version(version('ipykernel')) < Version('7.4'), version('ipykernel')

@@ -14,7 +14,7 @@ keywords = ['jupyter', 'kernel', 'ipykernel', 'ipymini', 'venv']
 classifiers = ["Natural Language :: English", "Intended Audience :: Developers",
                "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3",
                "Programming Language :: Python :: 3 :: Only"]
-dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6', 'ipykernel>=6.29', 'ipymini>=0.1.17',
+dependencies = ['fastcore>=1.8.17', 'jupyter-client>=8.6', 'ipykernel>=7.4', 'ipymini>=0.1.17',
                 'dhrishti>=0.1.4', 'jupygate>=0.0.5', 'jupyasyncclient>=0.2.21',
                 'jupywire>=0.1.14']
 
