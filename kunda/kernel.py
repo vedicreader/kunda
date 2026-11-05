@@ -10,14 +10,14 @@ from fastcore.ansi import strip_ansi
 from jupyter_client.manager import AsyncKernelManager
 from dhrishti.registry import active, reg_dir
 from .pythons import app_name
-from .support import HOST_PY, clean_env, strip_bundle, support_paths, work_dir
+from .support import HOST_PY, clean_env, ipykernel_notice, strip_bundle, support_paths, work_dir
 from .spec import ExecOutcome, KernelStartError, _kernel_env, runtime_python, kernel_spec, bootstrap_src, kernelspec_for, missing_kernel_module, output_text
 
 # %% auto #0
-__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'QUIET', 'PROBE_WAIT', 'BOOT_WAIT', 'SUBSCRIBER_QUEUE', 'COMM_MSGS', 'OUTPUT_MSGS',
-           'GATEWAY_DEPS', 'give_up_after', 'ipymini_available', 'CommsUnsupported', 'comm_content', 'Feed',
-           'InspectorClient', 'MessageRouter', 'DebugClient', 'Kernel', 'check_gateway_deps', 'GatewayService',
-           'GatewayKernel']
+__all__ = ['KERNELS', 'SHUTDOWN_WAIT', 'QUIET', 'PROBE_WAIT', 'CONTROL_WAIT', 'DEAF_PROBES', 'SHELL_STOPPED', 'BOOT_WAIT',
+           'SUBSCRIBER_QUEUE', 'COMM_MSGS', 'OUTPUT_MSGS', 'GATEWAY_DEPS', 'give_up_after', 'ipymini_available',
+           'CommsUnsupported', 'comm_content', 'Feed', 'InspectorClient', 'MessageRouter', 'DebugClient', 'Kernel',
+           'check_gateway_deps', 'GatewayService', 'GatewayKernel']
 
 # %% ../nbs/04_kernel.ipynb #cf6bf71a
 KERNELS, SHUTDOWN_WAIT = ('ipykernel', 'ipymini'), 5.0
@@ -38,6 +38,9 @@ def ipymini_available():
 _log = logging.getLogger(__name__)
 #: How long a gateway run may hear nothing before kunda asks whether its reply was lost, and how long that question may wait.
 QUIET, PROBE_WAIT = 2.0, 30.0
+#: How long the control channel may take to answer, and how many unanswered shell probes in a row mean the shell stopped reading.
+CONTROL_WAIT, DEAF_PROBES = 5.0, 2
+SHELL_STOPPED = "the kernel's shell stopped answering; restart the kernel to go on"
 #: How long the inspector's bootstrap cell may run before it is interrupted and tried once more; dhrishti before 0.1.10 could lose its port
 #: to a kernel starting beside it and wait forever.
 BOOT_WAIT = 30.0
@@ -214,7 +217,8 @@ class _Run:
     def __init__(self, on_output=None, on_debug=None):
         self.on_output, self.on_debug = on_output, on_debug
         self.outs, self.displays, self.reply, self.error, self.probe, self.probe_ws, self.raised = [], {}, None, None, None, None, None
-        self.idle = self.lost = self.clear_next = False
+        self.idle = self.busy = self.lost = self.clear_next = False
+        self.reason, self.via, self.deaf = None, None, 0
         self.done, self.last = asyncio.Event(), time.monotonic()
     def heard(self):
         "A message for this run arrived. The run is over once its reply and its idle status both have."
@@ -229,13 +233,14 @@ class _Run:
         if err is None and c.get('status') == 'error': err = f"{c.get('ename')}: {c.get('evalue')}"
         elif err is None and c.get('status') == 'abort': err = 'aborted'
         if err is None and (e := first(self.outs, lambda o: o['output_type'] == 'error')): err = f"{e.get('ename')}: {e.get('evalue')}"
-        return ExecOutcome(ok=err is None, execution_count=c.get('execution_count'), outputs=self.outs, error=err, lost=self.lost)
+        return ExecOutcome(ok=err is None, execution_count=c.get('execution_count'), outputs=self.outs, error=err, lost=self.lost, reason=self.reason)
 
 # %% ../nbs/04_kernel.ipynb #f77729a2
 class MessageRouter(InspectorClient):
     "The one reader of a kernel's iopub and shell replies, sending each message to its run, its waiter or the subscribers."
     def _init_router(self):
         self._runs, self._waiters, self._output_comms = {}, {}, {}
+        self.stalled, self.notice = None, None
     def _route(self, msg):
         "Deliver one inbound message without waiting, so no consumer can stall the reader."
         try: self._dispatch(msg)
@@ -253,6 +258,7 @@ class MessageRouter(InspectorClient):
         if t == 'status':
             if c.get('execution_state') == 'dead': self._settle_runs('kernel died')
             elif c.get('execution_state') == 'idle' and run is not None: run.idle = True; run.heard()
+            elif c.get('execution_state') == 'busy' and run is not None: run.busy = True
             return
         if t in COMM_MSGS:
             self._track_comm(t, c)
@@ -325,13 +331,14 @@ class MessageRouter(InspectorClient):
     async def execute(self, code, silent=False, store_history=True, on_output=None, timeout=None, on_debug=None):
         "Run `code` and collect nbformat-shaped outputs, streaming each to `on_output`; `timeout` bounds the whole run. `on_output` also gets `{'output_type': 'clear_output'}` when the outputs clear. A consumer that builds the output list resets it on this event."
         if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
+        if self.stalled: return ExecOutcome(ok=False, error=SHELL_STOPPED, lost=True, reason=self.stalled)
         async with self._exec_lock:
             if not self.alive: return ExecOutcome(ok=False, error='kernel is not running')
             task, run, mid = asyncio.current_task(), _Run(on_output, on_debug), None
             self._exec_task = task
             self.touch()
             try:
-                mid = self._send_execute(code, silent=silent, store_history=store_history)
+                mid, run.via = self._send_execute(code, silent=silent, store_history=store_history), self._link()
                 self._runs[mid] = run
                 await self._wait(run, timeout)
             finally:
@@ -353,6 +360,11 @@ class MessageRouter(InspectorClient):
             self._quiet(run)
     def _quiet(self, run):
         "Check on a run that has heard nothing for a while. Only a transport that can lose replies needs to."
+    def _link(self):
+        "The connection an execute went out on, for a transport that can redial; None here."
+    async def _check_ipykernel(self):
+        "Set `notice` when this kernel's ipykernel can stop answering (`ipykernel_notice`)."
+        self.notice = await asyncio.to_thread(ipykernel_notice, self.python) if self.kernel == 'ipykernel' and self.lang == 'python' else None
     def comm_send(self, comm_id, data, buffers=(), msg_type='comm_msg', target_name=None, metadata=None):
         "Relay one comm message to the kernel on its shell channel without waiting; returns its msg_id."
         if not self.comms: return super().comm_send(comm_id, data)
@@ -549,6 +561,7 @@ class Kernel(DebugClient, MessageRouter):
                     f'{runtime_python(self.python)} cannot import {mod}, so it can run no kernel. '
                     f'Run `uv sync` in that project, or pick another interpreter in the kernel picker.') from e
             raise
+        await self._check_ipykernel()
         if self.inspect: await self.bootstrap()
         return self
     def _start_router(self):
@@ -583,7 +596,7 @@ class Kernel(DebugClient, MessageRouter):
     async def restart(self):
         "Restart the process; the namespace and the in-kernel inspector are both rebuilt."
         if not self.km: return
-        self.base = self.boot_error = None
+        self.base = self.boot_error = self.stalled = None
         self._settle_runs('kernel restarted')
         self._output_comms.clear()
         await self._stop_router()
@@ -591,6 +604,7 @@ class Kernel(DebugClient, MessageRouter):
             await self.km.restart_kernel(now=False)
             await self.kc.wait_for_ready(timeout=60)
         finally: self._start_router()
+        await self._check_ipykernel()
         self.emit('kernel_restart')
         if self.inspect: await self.bootstrap()
     async def shutdown(self):
@@ -730,6 +744,7 @@ class GatewayKernel(DebugClient, MessageRouter):
         self.kc = kc
         self.kc.on_jmsg = self._route    # every message no request of the client's own claims, across reconnects
         self._alive = True
+        await self._check_ipykernel()
         if self.inspect: await self.bootstrap()
         return self
     @property
@@ -744,6 +759,7 @@ class GatewayKernel(DebugClient, MessageRouter):
         return None
     def _send_execute(self, code, **kw): return self.kc.execute(code, allow_stdin=False, **kw)
     def _send_shell(self, msg): self.kc.send(msg, 'shell')
+    def _link(self): return getattr(self.kc, '_ws', None)
     def _quiet(self, run):
         ws = getattr(self.kc, '_ws', None)
         if run.probe is not None and run.probe_ws is not ws:    # asked on a socket that has since died, so no answer can come
@@ -756,6 +772,12 @@ class GatewayKernel(DebugClient, MessageRouter):
         try: await self.kc.kernel_info(timeout=PROBE_WAIT)
         except asyncio.TimeoutError:
             if not self.kc.channels_running: return run.settle('the gateway connection is gone')
+            # A run that finished, or whose execute the shell never took up on this socket, waits on no cell: the shell has stopped reading (ipykernel#1529).
+            run.deaf = run.deaf + 1 if run.idle or (not run.busy and run.via is self._link()) else 0
+            if run.deaf >= DEAF_PROBES and await self._control_answers():
+                self.stalled = run.reason = 'shell_stopped'
+                run.lost = True
+                return run.settle(SHELL_STOPPED)
             run.probe = None
             return
         except ConnectionError:    # the socket dropped under the probe; ask again once the client has redialled
@@ -766,6 +788,11 @@ class GatewayKernel(DebugClient, MessageRouter):
         except asyncio.TimeoutError:
             run.lost = True
             run.settle()
+    async def _control_answers(self):
+        "Whether the control channel, which ipykernel reads on its own thread, answers `kernel_info`."
+        try: await self.kc.kernel_info_request(channel='control', timeout=CONTROL_WAIT)
+        except Exception: return False
+        return True
     async def comm_info(self, target_name=None, timeout=10):
         "The kernel's open comms, optionally only those for `target_name`; answered after any running cell."
         if not self.comms: return await super().comm_info(target_name)
@@ -799,11 +826,12 @@ class GatewayKernel(DebugClient, MessageRouter):
         if self.kc: await self.kc.interrupt_kernel()
     async def restart(self):
         if not self.kc: return
-        self.base = self.boot_error = None
+        self.base = self.boot_error = self.stalled = None
         self._settle_runs('kernel restarted')
         self._debug_reset('kernel restarted')
         self._output_comms.clear()
         await self.kc.restart_kernel(); await self.kc.wait_for_ready(timeout=60)
+        await self._check_ipykernel()
         self.emit('kernel_restart')
         if self.inspect: await self.bootstrap()
     async def _release(self):

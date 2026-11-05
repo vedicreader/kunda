@@ -86,6 +86,7 @@ class ExecOutcome:
     outputs: list = field(default_factory=list)
     error: str | None = None
     lost: bool = False     # the reply never came back, though the kernel had finished
+    reason: str | None = None   # why it was lost: 'shell_stopped' when the kernel's shell no longer reads requests
     @property
     def text(self): return output_text(self.outputs)
 
