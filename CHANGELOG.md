@@ -2,6 +2,12 @@
 
 <!-- do not remove -->
 
+## 0.0.12
+- A gateway run whose kernel shell stopped reading now ends. When two probes in a row get no shell answer, the run is not a running cell, and the control channel still answers, the run ends with `lost=True`, `reason='shell_stopped'` and an error that says to restart the kernel. Each later `execute` returns the same outcome at once, until `restart`. Before, kunda asked again every 30 s and the cell never ended. A socket that dropped keeps the old recovery.
+- `ExecOutcome` has a new field, `reason`.
+- `ipykernel_version` reads an interpreter's ipykernel version from its metadata, without importing ipykernel. `ipykernel_notice` gives a message for ipykernel 7.0 to 7.3, which can stop answering. `kernel_support` puts it in the ipykernel entry as `notice`, and a started `Kernel` or `GatewayKernel` keeps it in `notice`.
+- `install_kernel_support` installs `ipykernel>=7.4` (`kernel_requirements`), not the host's exact version, and refuses a Python older than 3.11 before it installs anything.
+
 ## 0.0.11
 - kunda needs ipykernel 7.4 or later. ipykernel 7.0 to 7.3 can stop reading its shell socket when a request comes at the same moment as a reply goes out (ipykernel PR #1529). Kunda's check for a lost reply sends `kernel_info` about 2 s into a cell, so a cell of about 2 s could hang until the kernel restarted.
 
