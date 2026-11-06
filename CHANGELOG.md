@@ -2,6 +2,11 @@
 
 <!-- do not remove -->
 
+## 0.0.14
+
+- `make_venv(root)` makes a project's `.venv` with the host's Python minor version and kernel support, keeps an existing one, and refuses a `.venv` folder with no interpreter.
+- `python_for` takes a venv from `roots` only when the caller sets `borrow=True`. Before, a folder with no venv of its own used the first venv among the open folders.
+
 ## 0.0.13
 
 Needs dhrishti 0.1.12.
