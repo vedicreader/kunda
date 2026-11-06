@@ -201,5 +201,6 @@ d = { 'settings': { 'branch': 'main',
                                'kunda.support.ipykernel_version': ('support.html#ipykernel_version', 'kunda/support.py'),
                                'kunda.support.kernel_requirements': ('support.html#kernel_requirements', 'kunda/support.py'),
                                'kunda.support.kernel_support': ('support.html#kernel_support', 'kunda/support.py'),
+                               'kunda.support.make_venv': ('support.html#make_venv', 'kunda/support.py'),
                                'kunda.support.support_paths': ('support.html#support_paths', 'kunda/support.py'),
                                'kunda.support.work_dir': ('support.html#work_dir', 'kunda/support.py')}}}

@@ -4,13 +4,14 @@
 __all__ = ['HOST_PY', 'INSPECTOR', 'INSPECTOR_TTL', 'KERNEL_PACKAGES', 'IPYKERNEL_FLOOR', 'MIN_PY', 'VALUE_TYPES',
            'INSPECTOR_LOADER', 'IMPORT_FAULTS', 'work_dir', 'support_paths', 'inspector_modules', 'inspector_loader',
            'ipykernel_version', 'ipykernel_notice', 'kernel_support', 'inspector_support', 'import_failure',
-           'installable', 'as_installed', 'kernel_requirements', 'install_kernel_support', 'install_inspector_support']
+           'installable', 'as_installed', 'kernel_requirements', 'install_kernel_support', 'make_venv',
+           'install_inspector_support']
 
 # %% ../nbs/01_support.ipynb #f4b7e620
 import importlib.util, os, re, shutil, subprocess, sys, threading, time
 from functools import cache
 from pathlib import Path
-from .pythons import BUNDLE_ONLY, clean_env, strip_bundle
+from .pythons import BUNDLE_ONLY, VENV_BINS, clean_env, nearest_python, strip_bundle
 
 # %% ../nbs/01_support.ipynb #f361168d
 HOST_PY = tuple(sys.version_info[:2])
@@ -244,6 +245,27 @@ def install_kernel_support(python, packages=None):
                 if all(x['available'] for x in support.values()): return {'ok': True, 'python': python, 'support': support, 'attempts': logs}
                 unimportable = '; '.join(f"{name} installed but does not import ({x['error']})" for name, x in support.items() if not x['available'])
     raise RuntimeError(f'kernel support installation failed: {unimportable or _detail(logs)}')
+
+# %% ../nbs/01_support.ipynb #e5e916b1
+def make_venv(root, python=None):
+    "Make `root/.venv` on `python` (this Python's minor by default) with kernel support; its interpreter. An existing venv is kept; a half-made one is removed."
+    root = Path(root)
+    target = root/'.venv'
+    with _lock_for(target):
+        if (py := nearest_python(root, root)): return py
+        if target.exists(): raise FileExistsError(f'{target} exists and holds no interpreter; remove it or choose an interpreter')
+        try:
+            if uv := shutil.which('uv'):
+                p = _run([uv, 'venv', target, '--python', python or '%d.%d' % HOST_PY], 600)
+                if p.returncode: raise RuntimeError(f'uv venv failed: {_last_line(p.stderr or p.stdout)}')
+            else:
+                import venv
+                venv.EnvBuilder(with_pip=True).create(target)
+            install_kernel_support(py := target/VENV_BINS[os.name == 'nt'])
+            return str(py)
+        except BaseException:
+            shutil.rmtree(target, ignore_errors=True)
+            raise
 
 # %% ../nbs/01_support.ipynb #4ce3e0ba
 def install_inspector_support(python, packages=INSPECTOR):

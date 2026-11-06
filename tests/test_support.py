@@ -59,3 +59,16 @@ def test_the_paths_the_inspector_finder_searches_are_all_real_and_absolute():
 def test_the_host_version_is_what_the_host_inspector_is_gated_on():
     "A frozen build ships bytecode for one version; another reads the magic number and refuses."
     assert HOST_PY == tuple(sys.version_info[:2])
+
+def test_a_project_gets_its_own_venv_and_a_failed_one_is_removed(tmp_path, monkeypatch):
+    "The venv is made on the host's minor in the folder itself; when kernel support fails, nothing half-made stays."
+    import kunda.support as S
+    seen = []
+    monkeypatch.setattr(S, 'install_kernel_support', lambda py: seen.append(Path(py)))
+    py = Path(S.make_venv(tmp_path/'proj'))
+    assert py.exists() and py.parent.parent == tmp_path/'proj'/'.venv' and seen == [py]
+    assert S.make_venv(tmp_path/'proj') == str(py) and len(seen) == 1, 'a second call keeps it'
+    def boom(py): raise RuntimeError('no index')
+    monkeypatch.setattr(S, 'install_kernel_support', boom)
+    with pytest.raises(RuntimeError, match='no index'): S.make_venv(tmp_path/'other')
+    assert not (tmp_path/'other'/'.venv').exists()
