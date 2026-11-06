@@ -2,6 +2,13 @@
 
 <!-- do not remove -->
 
+## 0.0.13
+
+Needs dhrishti 0.1.12.
+
+- A kernel in a chosen venv imports only that venv's packages. Before, kunda added every folder of the host's `sys.path` to the kernel when the two Python versions matched, so a notebook could import packages its venv did not have. The inspector still loads from the host, through a private finder that serves only dhrishti and its own dependencies, and only to dhrishti.
+- A kernel on the host's own Python works as before.
+
 ## 0.0.12
 - A gateway run whose kernel shell stopped reading now ends. When two probes in a row get no shell answer, the run is not a running cell, and the control channel still answers, the run ends with `lost=True`, `reason='shell_stopped'` and an error that says to restart the kernel. Each later `execute` returns the same outcome at once, until `restart`. Before, kunda asked again every 30 s and the cell never ended. A socket that dropped keeps the old recovery.
 - `ExecOutcome` has a new field, `reason`.
