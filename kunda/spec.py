@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from fastcore.all import L, first, ifnone
 from jupyter_client.kernelspec import KernelSpec
-from .support import HOST_PY, clean_env, support_paths
+from .support import clean_env, inspector_loader
 from .pythons import app_name
 
 # %% auto #0
@@ -31,24 +31,10 @@ def run_file_src(path, src=None, argv=(), cwd=None):
         '    del _kd_os, _kd_sys, _kd_code, _kd_argv, _kd_cwd\n')
 
 # %% ../nbs/03_spec.ipynb #f00189a0
-BOOTSTRAP = '''
+BOOTSTRAP = '''{loader}
 def _kd_bootstrap():
-	import sys, importlib.util
-	if tuple(sys.version_info[:2]) == tuple({version!r}):
-		for _p in {support!r}:
-			if _p and _p not in sys.path: sys.path.append(_p)
-	try:
-		if tuple(sys.version_info[:2]) != tuple({version!r}): raise ImportError('another Python')
-		for _n in [n for n in sys.modules if n == 'dhrishti' or n.startswith('dhrishti.')]: del sys.modules[_n]
-		_spec = importlib.util.spec_from_file_location('dhrishti', {dhrishti_init!r}, submodule_search_locations=[{dhrishti_dir!r}])
-		_pkg = importlib.util.module_from_spec(_spec)
-		sys.modules['dhrishti'] = _pkg
-		_spec.loader.exec_module(_pkg)
-	except Exception:
-		for _n in [n for n in sys.modules if n == 'dhrishti' or n.startswith('dhrishti.')]: del sys.modules[_n]
 	import dhrishti.serving as ls
-	r = ls.serve_in_kernel(name={name!r}, port={port!r}, agent={agent!r}, token={token!r}, session_dir={sessions!r}, agent_session_dir={agent_sessions!r})
-	return r
+	return ls.serve_in_kernel(name={name!r}, port={port!r}, agent={agent!r}, token={token!r}, session_dir={sessions!r}, agent_session_dir={agent_sessions!r})
 try: _kd_bootstrap()
 finally: del _kd_bootstrap
 '''
@@ -57,12 +43,8 @@ finally: del _kd_bootstrap
 def bootstrap_src(name=None, port=8000, agent='restricted', token=True, sessions=None, agent_sessions=None):
     "The bootstrap cell source for a kernel that should host an inspector."
     sessions, agent_sessions = (ifnone(sessions, f'_{app_name()}_sessions'), ifnone(agent_sessions, f'_{app_name()}_agent_sessions'))
-    support = support_paths()
-    spec = importlib.util.find_spec('dhrishti')
-    if spec is None or not spec.origin: raise RuntimeError('dhrishti is not installed')
-    dhrishti_init = str(Path(spec.origin).resolve())
-    return BOOTSTRAP.format(name=name, port=port, agent=agent, token=token, support=support, sessions=sessions, agent_sessions=agent_sessions,
-        version=HOST_PY, dhrishti_init=dhrishti_init, dhrishti_dir=str(Path(dhrishti_init).parent))
+    if not (loader := inspector_loader()): raise RuntimeError('dhrishti is not installed')
+    return BOOTSTRAP.format(loader=loader, name=name, port=port, agent=agent, token=token, sessions=sessions, agent_sessions=agent_sessions)
 
 # %% ../nbs/03_spec.ipynb #ea6cc0c6
 def output_text(outs):

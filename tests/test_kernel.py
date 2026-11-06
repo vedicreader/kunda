@@ -157,3 +157,27 @@ def test_no_ipykernel_with_the_shell_wedge_can_be_installed():
     spec = next(r for r in map(Requirement, deps) if r.name == 'ipykernel').specifier
     assert not any(spec.contains(v) for v in ('7.0.0', '7.1.0', '7.2.0', '7.3.0')), spec
     assert not Version('7.0') <= Version(version('ipykernel')) < Version('7.4'), version('ipykernel')
+
+async def test_a_chosen_venv_imports_only_its_own_packages_and_still_hosts_the_inspector(tmp_path):
+    """The bootstrap once appended the host's whole `sys.path` to a kernel of the same Python. A venv that lacked
+    a package then imported the host's copy, and nobody saw that the venv was incomplete."""
+    import shutil, subprocess
+    from kunda.support import install_kernel_support
+    if not shutil.which('uv'): pytest.skip('needs uv to make a venv')
+    venv = tmp_path/'venv'
+    subprocess.run(['uv', 'venv', '-q', '--python', sys.executable, str(venv)], check=True)
+    py = str(venv/'bin'/'python')
+    try: install_kernel_support(py)
+    except RuntimeError as e: pytest.skip(f'kernel support did not install: {e}')
+    k = Kernel(cwd=str(tmp_path), python=py)
+    try:
+        await asyncio.wait_for(k.start(), 90)
+        assert k.base and k.boot_error is None, k.boot_error
+        assert (await run(k, 'kept = [1, 2]')).ok
+        assert 'kept' in await k.names(), 'the inspector answers'
+        for mod in ('jupygate', 'numpy'):   # the host has both; the venv has neither, and dhrishti did not load them
+            out = await run(k, f'import {mod}')
+            assert not out.ok and 'ModuleNotFoundError' in out.text, (mod, out.text)
+        out = await run(k, 'import sys; print(any(".venv" in p and "kunda" in p for p in sys.path))')
+        assert out.text.strip() == 'False', "the host's site-packages are not on the kernel's path"
+    finally: await k.shutdown()

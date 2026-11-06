@@ -52,10 +52,10 @@ def test_a_child_is_given_a_directory_it_can_actually_write_in(tmp_path):
     assert work_dir(tmp_path) == str(tmp_path)
     assert Path(work_dir()).is_dir()
 
-def test_the_paths_a_kernel_may_borrow_are_all_real_and_absolute():
-    "A relative or missing entry handed to a kernel is a silent import failure inside it."
+def test_the_paths_the_inspector_finder_searches_are_all_real_and_absolute():
+    "A relative or missing entry is a silent import failure for the inspector. The kernel's own `sys.path` never gets them."
     for p in support_paths(): assert Path(p).is_absolute() and Path(p).exists()
 
-def test_the_host_version_is_what_a_borrowed_path_is_gated_on():
+def test_the_host_version_is_what_the_host_inspector_is_gated_on():
     "A frozen build ships bytecode for one version; another reads the magic number and refuses."
     assert HOST_PY == tuple(sys.version_info[:2])
