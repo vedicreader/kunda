@@ -93,10 +93,10 @@ def nearest_python(start, stop=None):
     return str(p) if p else None
 
 # %% ../nbs/00_pythons.ipynb #7c3ae36b
-def python_for(cwd=None, stop=None, roots=(), default=None):
-    "Pick interpreter for `cwd`: walk up to `stop`, then `default`, then first venv in `roots`; None means use current."
+def python_for(cwd=None, stop=None, roots=(), default=None, borrow=False):
+    "The interpreter for `cwd`: the nearest venv up to `stop`, then `default`; the first venv in `roots` only with `borrow`; None means this one."
     if cwd and (py := nearest_python(cwd, stop)): return py
-    return default or project_python(roots)
+    return default or (project_python(roots) if borrow else None)
 
 # %% ../nbs/00_pythons.ipynb #99285c53
 def venv_roots(roots):

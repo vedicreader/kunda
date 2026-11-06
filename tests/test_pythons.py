@@ -28,14 +28,15 @@ def test_the_nearest_venv_wins_over_a_further_one(tmp_path):
     assert nearest_python(inner) == str(near)
 
 def test_python_for_falls_through_in_the_order_it_promises(tmp_path):
-    "The walk up, then the caller's default, then the first venv among the roots, then nothing."
+    "The walk up, then the caller's default, then nothing; the first venv among the roots only when the caller borrows."
     proj = tmp_path/'proj'; proj.mkdir()
     assert python_for(proj) is None, 'nothing to find, so nothing claimed'
     assert python_for(proj, default='/usr/bin/python3') == '/usr/bin/python3'
     other = tmp_path/'other'; other.mkdir(); root_py = mkvenv(other)
-    assert python_for(proj, roots=[other]) == str(root_py)
+    assert python_for(proj, roots=[other]) is None, "another project's venv is never picked by itself"
+    assert python_for(proj, roots=[other], borrow=True) == str(root_py)
     own = mkvenv(proj)
-    assert python_for(proj) == str(own), 'and its own beats both'
+    assert python_for(proj, roots=[other], borrow=True) == str(own), 'and its own beats both'
 
 def test_project_python_prefers_the_conventional_name(tmp_path):
     "`.venv` before `venv`: a project with both made `.venv` on purpose and `venv` by accident."

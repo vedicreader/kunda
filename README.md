@@ -11,7 +11,7 @@ pip install kunda
 
 ## Select an interpreter
 
-[`python_for`](https://vedicreader.github.io/kunda/pythons.html#python_for) searches parent folders up to `stop`, then uses the supplied default or a virtual environment under `roots`. [`venv_env`](https://vedicreader.github.io/kunda/pythons.html#venv_env) prepares the child’s environment.
+[`python_for`](https://vedicreader.github.io/kunda/pythons.html#python_for) searches parent folders up to `stop`, then uses the supplied default. When it finds nothing, it returns None and the host runs on its own Python. It never takes a venv from another folder in `roots` unless the caller sets `borrow=True`. [`venv_env`](https://vedicreader.github.io/kunda/pythons.html#venv_env) prepares the child’s environment.
 
 ``` python
 selected = python_for(root/'src', stop=root)
@@ -56,7 +56,7 @@ broker.status(), pool._class_for({'lang': 'rust'}).__name__
 
 ## Kernel support
 
-Support probes do not install packages. Installation uses the host’s installed package versions.
+Support probes do not install packages. Installation uses the host’s installed package versions. `make_venv(folder)` gives a project its own `.venv` with kernel support, so a project without one does not borrow another environment.
 
 ``` python
 support = kernel_support(python)
