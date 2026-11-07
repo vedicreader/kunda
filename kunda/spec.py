@@ -40,7 +40,7 @@ finally: del _kd_bootstrap
 '''
 
 # %% ../nbs/03_spec.ipynb #5a57fb04
-def bootstrap_src(name=None, port=8000, agent='restricted', token=True, sessions=None, agent_sessions=None):
+def bootstrap_src(name=None, port=0, agent='restricted', token=True, sessions=None, agent_sessions=None):
     "The bootstrap cell source for a kernel that should host an inspector."
     sessions, agent_sessions = (ifnone(sessions, f'_{app_name()}_sessions'), ifnone(agent_sessions, f'_{app_name()}_agent_sessions'))
     if not (loader := inspector_loader()): raise RuntimeError('dhrishti is not installed')

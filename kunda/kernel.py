@@ -490,7 +490,7 @@ class Kernel(DebugClient, MessageRouter):
         python=None,
         inspect=True,
         agent='restricted',
-        port=8000,
+        port=0,            # 0: the OS gives the inspector a free port
         kernel='ipykernel',
         lang='python',
         known=None,        # the host's `{language: kernelspec}`, handed down by the pool
@@ -710,7 +710,7 @@ class GatewayKernel(DebugClient, MessageRouter):
     "The `Kernel` interface over jupygate + jupyasyncclient, so a kernel outlives a client reconnect."
     lang = 'python'
     def __init__(self, gateway, cwd=None, name=None, python=None, inspect=True,
-        agent='restricted', port=8000, kernel='ipykernel'):
+        agent='restricted', port=0, kernel='ipykernel'):
         store_attr()
         if self.kernel not in KERNELS: self.kernel = 'ipykernel'
         if self.kernel == 'ipymini' and not ipymini_available():

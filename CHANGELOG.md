@@ -2,6 +2,10 @@
 
 <!-- do not remove -->
 
+## 0.0.15
+
+- `KernelPool`, `Kernel`, `GatewayKernel` and `bootstrap_src` default to port 0, so the OS gives each inspector a free port. Before, the default was 8000, and an inspector took a port that a person may want for their own server. The kernel still finds its inspector through the dhrishti registry.
+
 ## 0.0.14
 
 - `make_venv(root)` makes a project's `.venv` with the host's Python minor version and kernel support, keeps an existing one, and refuses a `.venv` folder with no interpreter.

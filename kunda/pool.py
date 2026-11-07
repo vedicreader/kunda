@@ -86,7 +86,7 @@ class RuntimeBroker:
 # %% ../nbs/05_pool.ipynb #ece5f6cf
 class KernelPool:
     "Live kernels, keyed by an id the host assigns: usually a tab, a notebook or a folder."
-    def __init__(self, port=8000, default_kernel='ipykernel', default_python=None, broker=None,
+    def __init__(self, port=0, default_kernel='ipykernel', default_python=None, broker=None,
         transport='direct', gateway=None, idle=None, runner_for=None, known_kernels=None,
         install_hints=None):
         self.runner_for, self.known_kernels = runner_for, known_kernels or {}
