@@ -5,12 +5,12 @@
 # %% auto #0
 __all__ = ['TRACE_MIME', 'trace_cell']
 
-# %% ../nbs/06_trace.ipynb #3225b54a
+# %% ../nbs/06_trace.ipynb #2ede6264
 import ast, asyncio, inspect, json
 from fastcore.all import AttrDict, patch
 from .kernel import MessageRouter
 
-# %% ../nbs/06_trace.ipynb #13bd2e07
+# %% ../nbs/06_trace.ipynb #f9c42bf8
 def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., keep=50, max_seen=200_000, fn=None):
     "Run `code` in `ns` under a bounded line tracer and return `{events, error, seen, truncated, reason, source}`."
     import ast, sys, time, reprlib, types, collections, linecache, uuid
@@ -70,7 +70,9 @@ def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., kee
             if c == keep + 1:
                 sk = skips[k] = dict(step=rec['step'], line=rec['line'], event='skip', of=rec['event'], count=0, depth=rec['depth'], locals_changed={})
                 events.append(sk)
-            ring.setdefault(k, collections.deque(maxlen=keep)).append(rec)
+            q = ring.setdefault(k, collections.deque(maxlen=keep))
+            if len(q) == keep: skips[k]['locals_changed'].update(q[0]['locals_changed'])
+            q.append(rec)
     def over():
         st.seen += 1
         if st.seen > max_seen: st.reason = f'stopped after {max_seen} events'
@@ -134,7 +136,7 @@ def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., kee
                error=None if err is None else f'{type(err).__name__}: {err}')
     return out, res, err, t
 
-# %% ../nbs/06_trace.ipynb #c69002af
+# %% ../nbs/06_trace.ipynb #d53b8c49
 TRACE_MIME = 'application/vnd.kunda.trace+json'
 
 def _harness(code, watch, max_events, max_repr, secs, keep):
@@ -152,7 +154,7 @@ try: _kunda_run()
 finally: del _kunda_run, trace_cell
 """)
 
-# %% ../nbs/06_trace.ipynb #4acb7516
+# %% ../nbs/06_trace.ipynb #e7a1bfa4
 @patch
 async def run_traced(self: MessageRouter, code, watch=None, max_events=2000, max_repr=200, secs=5., keep=50, timeout=None, on_output=None, **kw):
     "Run `code` like `execute` and return `AttrDict(ok, error, outputs, execution_count, events, truncated, reason, seen, secs)`. `events` holds one dict per traced line, call, return or exception."
