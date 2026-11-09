@@ -7,6 +7,7 @@ from .support import install_kernel_support, kernel_support, installable, make_v
 from .spec import ExecOutcome, KernelStartError, output_text
 from .kernel import Kernel, ipymini_available
 from .pool import KernelLimit, KernelPool, RuntimeBroker
+from . import trace    # adds `run_traced` to every kernel
 
 __all__ = ['find_pythons', 'nearest_python', 'project_python', 'python_for', 'use_app', 'venv_env',
            'install_kernel_support', 'kernel_support', 'installable', 'make_venv', 'ExecOutcome',

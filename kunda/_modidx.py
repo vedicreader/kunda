@@ -203,4 +203,7 @@ d = { 'settings': { 'branch': 'main',
                                'kunda.support.kernel_support': ('support.html#kernel_support', 'kunda/support.py'),
                                'kunda.support.make_venv': ('support.html#make_venv', 'kunda/support.py'),
                                'kunda.support.support_paths': ('support.html#support_paths', 'kunda/support.py'),
-                               'kunda.support.work_dir': ('support.html#work_dir', 'kunda/support.py')}}}
+                               'kunda.support.work_dir': ('support.html#work_dir', 'kunda/support.py')},
+            'kunda.trace': { 'kunda.trace.MessageRouter.run_traced': ('trace.html#messagerouter.run_traced', 'kunda/trace.py'),
+                             'kunda.trace._harness': ('trace.html#_harness', 'kunda/trace.py'),
+                             'kunda.trace.trace_cell': ('trace.html#trace_cell', 'kunda/trace.py')}}}
