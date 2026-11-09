@@ -2,6 +2,10 @@
 
 <!-- do not remove -->
 
+## Unreleased
+
+- New `kunda.trace`: `run_traced` runs a cell and returns its values line by line (one event for each line, call, return or exception), with limits on events, value size and time. A kernel that is not Python gives a plain error.
+
 ## 0.0.15
 
 - `KernelPool`, `Kernel`, `GatewayKernel` and `bootstrap_src` default to port 0, so the OS gives each inspector a free port. Before, the default was 8000, and an inspector took a port that a person may want for their own server. The kernel still finds its inspector through the dhrishti registry.
