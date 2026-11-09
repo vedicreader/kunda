@@ -5,12 +5,12 @@
 # %% auto #0
 __all__ = ['TRACE_MIME', 'trace_cell']
 
-# %% ../nbs/06_trace.ipynb #2ede6264
+# %% ../nbs/06_trace.ipynb #442b4b15
 import ast, asyncio, inspect, json
 from fastcore.all import AttrDict, patch
 from .kernel import MessageRouter
 
-# %% ../nbs/06_trace.ipynb #f9c42bf8
+# %% ../nbs/06_trace.ipynb #17fa0bc4
 def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., keep=50, max_seen=200_000, fn=None):
     "Run `code` in `ns` under a bounded line tracer and return `{events, error, seen, truncated, reason, source}`."
     import ast, sys, time, reprlib, types, collections, linecache, uuid
@@ -61,7 +61,7 @@ def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., kee
             out[k] = txt
         return out
     st = types.SimpleNamespace(step=0, seen=0, stop=False, reason=None, depth=0, t0=time.perf_counter())
-    events, cnt, ring, skips, frames = [], {}, {}, {}, {}
+    events, cnt, ring, skips, frames, modsnap = [], {}, {}, {}, {}, {}
     def add(rec):
         k = (rec['event'], rec['line'])
         c = cnt[k] = cnt.get(k, 0) + 1
@@ -109,7 +109,9 @@ def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., kee
         if event != 'call' or st.stop or frame.f_code.co_filename != fn: return None
         if over(): sys.settrace(None); return None
         st.depth += 1
-        s = frames.get(frame) or frames.setdefault(frame, dict(snap={}, pend=None))
+        top = frame.f_code.co_name == '<module>'
+        s = frames.get(frame) or frames.setdefault(frame, dict(snap=modsnap if top else {}, pend=None))
+        if top: return local
         rec('call', frame, **snap(frame, s['snap']))
         return local
     prev, err, res, t = sys.gettrace(), None, None, None
@@ -136,7 +138,7 @@ def trace_cell(code, ns, watch=None, max_events=2000, max_repr=200, secs=5., kee
                error=None if err is None else f'{type(err).__name__}: {err}')
     return out, res, err, t
 
-# %% ../nbs/06_trace.ipynb #d53b8c49
+# %% ../nbs/06_trace.ipynb #1ea986e9
 TRACE_MIME = 'application/vnd.kunda.trace+json'
 
 def _harness(code, watch, max_events, max_repr, secs, keep):
@@ -154,7 +156,7 @@ try: _kunda_run()
 finally: del _kunda_run, trace_cell
 """)
 
-# %% ../nbs/06_trace.ipynb #e7a1bfa4
+# %% ../nbs/06_trace.ipynb #585e7039
 @patch
 async def run_traced(self: MessageRouter, code, watch=None, max_events=2000, max_repr=200, secs=5., keep=50, timeout=None, on_output=None, **kw):
     "Run `code` like `execute` and return `AttrDict(ok, error, outputs, execution_count, events, truncated, reason, seen, secs)`. `events` holds one dict per traced line, call, return or exception."
