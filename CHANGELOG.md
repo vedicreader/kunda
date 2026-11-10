@@ -2,7 +2,7 @@
 
 <!-- do not remove -->
 
-## Unreleased
+## 0.0.16
 
 - New `kunda.trace`: `run_traced` runs a cell and returns its values line by line (one event for each line, call, return or exception), with limits on events, value size and time. A kernel that is not Python gives a plain error.
 
